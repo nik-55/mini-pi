@@ -18,25 +18,8 @@ def _get_path(raw_path: str) -> Path:
     return path
 
 
-class ReadTool(AgentTool):
-    name = "read"
-    description = (
-        "Read the contents of a text file with offset and limit for line ranges"
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "path": {"type": "string", "description": "Absolute Path to file to read"},
-            "offset": {
-                "type": "integer",
-                "description": "Line number to start reading from (1-indexed)",
-            },
-            "limit": {"type": "integer", "description": "Number of lines to read"},
-        },
-        "required": ["path"],
-    }
-
-    async def execute(self, arguments: dict[str, Any]) -> str:
+def create_read_tool():
+    async def execute(arguments: dict[str, Any]) -> str:
         raw_path = arguments.get("path")
         start = (arguments.get("offset", None) or 1) - 1
         limit = arguments.get("limit", None) or 300
@@ -53,26 +36,32 @@ class ReadTool(AgentTool):
 
         return "\n".join([f"{i}. {l}" for i, l in enumerate(lines, start=start + 1)])
 
-
-class BashTool(AgentTool):
-    name = "bash"
-    description = "Execute shell command. Returns stdout and stderr."
-    parameters = {
-        "type": "object",
-        "properties": {
-            "command": {
-                "type": "string",
-                "description": "The shell command to execute",
+    return AgentTool(
+        name="read",
+        description=(
+            "Read the contents of a text file with offset and limit for line ranges"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute Path to file to read",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Line number to start reading from (1-indexed)",
+                },
+                "limit": {"type": "integer", "description": "Number of lines to read"},
             },
-            "timeout": {
-                "type": "number",
-                "description": "Optional timeout in seconds (default: 60)",
-            },
+            "required": ["path"],
         },
-        "required": ["command"],
-    }
+        execute_fn=execute,
+    )
 
-    async def execute(self, arguments: dict[str, Any]) -> str:
+
+def create_bash_tool():
+    async def execute(arguments: dict[str, Any]) -> str:
         command = arguments.get("command")
         timeout = arguments.get("timeout", None) or 60
 
@@ -95,3 +84,23 @@ class BashTool(AgentTool):
             output += f"\n[Process exited with code {process.returncode}]"
 
         return output
+
+    return AgentTool(
+        name="bash",
+        description="Execute shell command. Returns stdout and stderr.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute",
+                },
+                "timeout": {
+                    "type": "number",
+                    "description": "Optional timeout in seconds (default: 60)",
+                },
+            },
+            "required": ["command"],
+        },
+        execute_fn=execute,
+    )
