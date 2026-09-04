@@ -3,7 +3,7 @@ import json
 
 import httpx
 
-from agent.events import AssistantErrorEvent, ProviderDeltaEvent
+from agent.events import AssistantErrorEvent, AgentEvent
 from agent.messages import AgentMessage
 from agent.provider import ModelProvider
 from agent.tools import AgentTool
@@ -30,7 +30,7 @@ class OpenAIProvider(ModelProvider):
         system: str,
         messages: list[AgentMessage],
         tools: list[AgentTool],
-    ) -> AsyncIterator[ProviderDeltaEvent]:
+    ) -> AsyncIterator[AgentEvent]:
         parser = ChatStreamParser()
 
         payload = build_chat_payload(model, system, messages, tools)

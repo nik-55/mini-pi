@@ -1,7 +1,7 @@
 import abc
 from collections.abc import AsyncIterator
 
-from agent.events import ProviderDeltaEvent
+from agent.events import AgentEvent
 from agent.messages import AgentMessage
 from agent.tools import AgentTool
 
@@ -14,5 +14,5 @@ class ModelProvider(abc.ABC):
         system: str,
         messages: list[AgentMessage],
         tools: list[AgentTool],
-    ) -> AsyncIterator[ProviderDeltaEvent]:
+    ) -> AsyncIterator[AgentEvent]:
         pass

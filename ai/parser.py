@@ -3,7 +3,7 @@ from typing import Any
 
 from agent.events import (
     AssistantDoneEvent,
-    ProviderDeltaEvent,
+    AgentEvent,
     TextDeltaEvent,
 )
 from agent.messages import AssistantMessage, ToolCall
@@ -75,7 +75,7 @@ class ChatStreamParser:
 
         return choice
 
-    def feed(self, chunk: dict) -> list[ProviderDeltaEvent]:
+    def feed(self, chunk: dict) -> list[AgentEvent]:
         choice = self._first_choice(chunk)
 
         if choice is None:
@@ -86,7 +86,7 @@ class ChatStreamParser:
         if not isinstance(delta, dict):
             return []
 
-        events: list[ProviderDeltaEvent] = []
+        events: list[AgentEvent] = []
 
         content = delta.get("content", None)
 
