@@ -3,7 +3,9 @@
 # But here I am assuming that parameter type is validated at agent layer
 
 import asyncio
+import os
 from pathlib import Path
+import shutil
 from typing import Any
 
 from agent.tools import AgentTool
@@ -13,8 +15,19 @@ class ToolError(ValueError):
     pass
 
 
+def _get_home() -> Path:
+    return Path.home()
+
+
+def _get_workspace() -> Path:
+    return Path.cwd().resolve()
+
+
 def _get_path(raw_path: str) -> Path:
-    path = Path(raw_path).resolve()
+    workspace = _get_workspace()
+    path = (workspace / raw_path).resolve()
+    if path != workspace and not path.is_relative_to(workspace):
+        raise ToolError(f"Path '{raw_path}' is not relative to '{workspace}'")
     return path
 
 
@@ -46,7 +59,7 @@ def create_read_tool():
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Absolute Path to file to read",
+                    "description": "Path to file to read",
                 },
                 "offset": {
                     "type": "integer",
@@ -151,11 +164,16 @@ def create_edit_tool():
 
 def create_bash_tool():
     async def execute(arguments: dict[str, Any]) -> str:
+        if shutil.which("bwrap") is None:
+            raise ToolError("Bash is not available")
+
         command = arguments.get("command")
         timeout = arguments.get("timeout", None) or 60
 
-        process = await asyncio.create_subprocess_shell(
-            command,
+        argv = bwrap_argv(home=_get_home(), workspace=_get_workspace(), command=command)
+
+        process = await asyncio.create_subprocess_exec(
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -193,3 +211,65 @@ def create_bash_tool():
         },
         execute_fn=execute,
     )
+
+
+# Only works on linux with bwrap
+def bwrap_argv(home: Path, workspace: Path, command: str) -> list[str]:
+    return [
+        "bwrap",
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--ro-bind-try",
+        "/bin",
+        "/bin",
+        "--ro-bind-try",
+        "/sbin",
+        "/sbin",
+        "--ro-bind-try",
+        "/lib",
+        "/lib",
+        "--ro-bind-try",
+        "/lib64",
+        "/lib64",
+        "--ro-bind-try",
+        "/etc",
+        "/etc",
+        "--ro-bind-try",
+        "/run/systemd/resolve",
+        "/run/systemd/resolve",
+        "--ro-bind",
+        str(home),
+        str(home),
+        "--tmpfs",
+        str(home / ".cache"),
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--tmpfs",
+        "/tmp",
+        "--bind",
+        str(workspace),
+        str(workspace),
+        "--chdir",
+        str(workspace),
+        "--unshare-all",
+        "--share-net",
+        "--die-with-parent",
+        "--new-session",
+        "--clearenv",
+        "--setenv",
+        "HOME",
+        str(home),
+        "--setenv",
+        "PATH",
+        os.environ.get("PATH", f"{home}/.local/bin:/usr/local/bin:/usr/bin:/bin"),
+        "--setenv",
+        "TERM",
+        "dumb",
+        "--",
+        "/bin/sh",
+        "-c",
+        command,
+    ]
