@@ -12,6 +12,7 @@ class SessionType(StrEnum):
     MESSAGE = "message"
     SESSION_INFO = "session_info"
     LEAF = "leaf"
+    COMPACTION = "compaction"
 
 
 def generate_session_entry_id() -> str:
@@ -43,6 +44,13 @@ class LeafEntry(BaseSessionEntry):
     entry_id: str | None = None
 
 
+class CompactionEntry(BaseSessionEntry):
+    type: Literal[SessionType.COMPACTION] = SessionType.COMPACTION
+    summary: str
+    replaces_entry_ids: list[str] = Field(default_factory=list)
+
+
 SessionEntry = Annotated[
-    MessageEntry | LeafEntry | SessionInfoEntry, Field(discriminator="type")
+    MessageEntry | LeafEntry | SessionInfoEntry | CompactionEntry,
+    Field(discriminator="type"),
 ]

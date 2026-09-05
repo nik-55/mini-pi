@@ -1,11 +1,8 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
-from pydantic import BaseModel
-
-from agent.events import AgentEvent, AssistantDoneEvent, ToolExecutionEndEvent
+from agent.events import AgentEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
-from agent.messages import AgentMessage, ToolResultMessage, UserMessage
 from agent.provider import ModelProvider
 from agent.session.entries import (
     LeafEntry,
@@ -16,6 +13,7 @@ from agent.session.entries import (
 from agent.session.state import SessionState
 from agent.session.storage import SessionStorage
 from agent.tools import AgentTool
+from coding.tokens import estimate_context_tokens
 
 
 @dataclass
@@ -26,6 +24,7 @@ class CodingSessionConfig:
     storage: SessionStorage
     tools: list[AgentTool] = field(default_factory=list)
     max_turns: int = 40
+    auto_compact_threshold: int | None = None
 
 
 def _latest_leaf_entry(entries: list[SessionEntry]) -> LeafEntry | None:
@@ -79,7 +78,23 @@ class CodingSession:
             last_parent_id=last_parent_id,
         )
 
+    def should_auto_compact(self) -> bool:
+        if self.config.auto_compact_threshold is None:
+            return False
+
+        if len(self.harness.messages) < 2:
+            return False
+
+        tokens = estimate_context_tokens(self.harness.messages)
+        return tokens > self.config.auto_compact_threshold
+
     async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
+        if self.should_auto_compact():
+            print(
+                f"\n[Auto compaction triggered: context exceeded {self.config.auto_compact_threshold} tokens]\n",
+                flush=True,
+            )
+
         start_index = len(self.harness.messages)
 
         async for event in self.harness.prompt(content):

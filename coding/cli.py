@@ -48,6 +48,7 @@ async def main():
         system=system_prompt,
         tools=tools,
         storage=storage,
+        auto_compact_threshold=50_000,
     )
 
     session = await CodingSession.load(config)
