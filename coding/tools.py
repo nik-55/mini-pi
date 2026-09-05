@@ -60,6 +60,95 @@ def create_read_tool():
     )
 
 
+def create_write_tool():
+    async def execute(arguments: dict[str, Any]) -> str:
+        raw_path = arguments.get("path")
+        content = arguments.get("content")
+
+        path = _get_path(raw_path)
+        path.parent.mkdir(exist_ok=True, parents=True)
+
+        path.write_text(content, encoding="utf-8")
+        return f"Successfully wrote {len(content)} characters to '{raw_path}'"
+
+    return AgentTool(
+        name="write",
+        description="Write content to a file. Creates the file if it doesn't exist, overwrites if it does.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file to write",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Content to write to the file",
+                },
+            },
+            "required": ["path", "content"],
+        },
+        execute_fn=execute,
+    )
+
+
+def create_edit_tool():
+    async def execute(arguments: dict[str, Any]) -> str:
+        raw_path = arguments.get("path")
+        old_string = arguments.get("old_string")
+        new_string = arguments.get("new_string")
+
+        if old_string is "":
+            raise ToolError("'old_string' cannot be empty")
+
+        path = _get_path(raw_path)
+
+        if not path.exists():
+            raise ToolError(f"Path '{raw_path}' does not exist")
+
+        if path.is_dir():
+            raise ToolError(f"'{raw_path}' is a dir")
+
+        content = path.read_text(encoding="utf-8")
+        count = content.count(old_string)
+
+        if count == 0:
+            raise ToolError(f"Could not find old_string in {raw_path}")
+        elif count > 1:
+            raise ToolError(
+                f"Found {count} occurences of old_string in {raw_path}. old_string must have only one occurance"
+            )
+
+        new_content = content.replace(old_string, new_string, 1)
+        path.write_text(new_content, encoding="utf-8")
+
+        return f"Successfully edited '{raw_path}'"
+
+    return AgentTool(
+        name="edit",
+        description="Edit a file by replacing an exact unique occurrence of old_string with new_string.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file to edit",
+                },
+                "old_string": {
+                    "type": "string",
+                    "description": "Exact string to find and replace. Must match uniquely.",
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "String to replace old_string with",
+                },
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+        execute_fn=execute,
+    )
+
+
 def create_bash_tool():
     async def execute(arguments: dict[str, Any]) -> str:
         command = arguments.get("command")

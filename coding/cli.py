@@ -12,7 +12,7 @@ from agent.events import (
 from agent.loop import run_agent_loop
 from agent.messages import AgentMessage, UserMessage
 from ai.openai import OpenAIProvider
-from coding.tools import create_read_tool, create_bash_tool
+from coding.tools import create_edit_tool, create_read_tool, create_bash_tool, create_write_tool
 
 system_prompt = """
 You are helpful assistant. You have access to user filesystem.
@@ -25,7 +25,7 @@ async def main():
     model = os.getenv("MODEL")
 
     provider = OpenAIProvider(api_key=api_key, base_url=base_url)
-    tools = [create_bash_tool(), create_read_tool()]
+    tools = [create_bash_tool(), create_read_tool(), create_write_tool(), create_edit_tool()]
 
     messages: list[AgentMessage] = []
 
