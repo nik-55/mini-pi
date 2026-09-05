@@ -1,7 +1,7 @@
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MessageType(StrEnum):
@@ -35,4 +35,6 @@ class ToolResultMessage(BaseModel):
     is_error: bool = False
 
 
-AgentMessage = UserMessage | AssistantMessage | ToolResultMessage
+AgentMessage = Annotated[
+    UserMessage | AssistantMessage | ToolResultMessage, Field(discriminator="role")
+]
