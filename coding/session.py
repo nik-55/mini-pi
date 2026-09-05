@@ -41,24 +41,29 @@ class CodingSession:
         config: CodingSessionConfig,
         harness: AgentHarness,
         last_parent_id: str | None = None,
+        pending_initial_entry: SessionInfoEntry | None = None,
     ):
         self.config = config
         self.harness = harness
         self.last_parent_id = last_parent_id
+        self.pending_initial_entry = pending_initial_entry
 
     @classmethod
     async def load(cls, config: CodingSessionConfig) -> "CodingSession":
         entries = await config.storage.read_all()
         last_parent_id: str | None = None
+        pending_initial_entry: SessionInfoEntry | None = None
 
         if not entries:
             info = SessionInfoEntry()
-            await config.storage.append(info)
-            entries = [info]
+            pending_initial_entry = info
 
-        latest_leaf = _latest_leaf_entry(entries)
-        leaf_id = latest_leaf.entry_id if latest_leaf else None
-        last_parent_id = leaf_id if leaf_id else entries[-1].id
+            leaf_id = None
+            last_parent_id = info.id
+        else:
+            latest_leaf = _latest_leaf_entry(entries)
+            leaf_id = latest_leaf.entry_id if latest_leaf else None
+            last_parent_id = leaf_id if leaf_id else entries[-1].id
 
         state = SessionState.from_entries(entries, leaf_id=leaf_id)
 
@@ -76,6 +81,7 @@ class CodingSession:
             config=config,
             harness=harness,
             last_parent_id=last_parent_id,
+            pending_initial_entry=pending_initial_entry,
         )
 
     def should_auto_compact(self) -> bool:
@@ -94,6 +100,10 @@ class CodingSession:
                 f"\n[Auto compaction triggered: context exceeded {self.config.auto_compact_threshold} tokens]\n",
                 flush=True,
             )
+
+        if self.pending_initial_entry is not None:
+            await self.config.storage.append(self.pending_initial_entry)
+            self.pending_initial_entry = None
 
         start_index = len(self.harness.messages)
 
