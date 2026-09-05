@@ -5,14 +5,13 @@ from agent.events import (
     AssistantErrorEvent,
     AgentEvent,
     TextDeltaEvent,
+    ThinkingDeltaEvent,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
 )
 from agent.messages import AgentMessage, AssistantMessage, ToolResultMessage
 from agent.provider import ModelProvider
 from agent.tools import AgentTool
-
-LoopEvent = AgentEvent
 
 
 async def run_agent_loop(
@@ -22,7 +21,7 @@ async def run_agent_loop(
     messages: list[AgentMessage],
     tools: list[AgentTool],
     max_turns: int = 40,
-) -> AsyncIterator[LoopEvent]:
+) -> AsyncIterator[AgentEvent]:
     tool_map = {t.name: t for t in tools}
 
     for _ in range(max_turns):
@@ -37,6 +36,8 @@ async def run_agent_loop(
 
         async for event in stream:
             if isinstance(event, TextDeltaEvent):
+                yield event
+            elif isinstance(event, ThinkingDeltaEvent):
                 yield event
             elif isinstance(event, AssistantDoneEvent):
                 assistant_message = event.message

@@ -2,8 +2,6 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Optional
 
-from pydantic import BaseModel
-
 from agent.events import AgentEvent
 from agent.loop import run_agent_loop
 from agent.messages import AgentMessage, UserMessage

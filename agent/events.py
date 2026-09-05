@@ -9,6 +9,10 @@ class TextDeltaEvent(BaseModel):
     delta: str
 
 
+class ThinkingDeltaEvent(BaseModel):
+    delta: str
+
+
 class AssistantDoneEvent(BaseModel):
     message: AssistantMessage
 
@@ -32,6 +36,7 @@ class ToolExecutionEndEvent(BaseModel):
 
 AgentEvent = (
     TextDeltaEvent
+    | ThinkingDeltaEvent
     | AssistantDoneEvent
     | AssistantErrorEvent
     | ToolExecutionStartEvent

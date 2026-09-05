@@ -45,6 +45,9 @@ def message_to_openai(message: AgentMessage) -> dict[str, Any]:
     if isinstance(message, AssistantMessage):
         msg = {"role": "assistant", "content": message.content}
 
+        if message.thinking:
+            msg["reasoning_content"] = message.thinking
+
         if len(message.tool_calls) > 0:
             msg["tool_calls"] = [
                 _tool_call_to_openai(tool_call) for tool_call in message.tool_calls

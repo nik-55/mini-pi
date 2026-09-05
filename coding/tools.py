@@ -98,7 +98,7 @@ def create_edit_tool():
         old_string = arguments.get("old_string")
         new_string = arguments.get("new_string")
 
-        if old_string is "":
+        if old_string == "":
             raise ToolError("'old_string' cannot be empty")
 
         path = _get_path(raw_path)

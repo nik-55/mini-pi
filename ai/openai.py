@@ -25,7 +25,6 @@ class OpenAIProvider(ModelProvider):
 
     def stream_response(
         self,
-        *,
         model: str,
         system: str,
         messages: list[AgentMessage],

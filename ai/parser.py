@@ -5,6 +5,7 @@ from agent.events import (
     AssistantDoneEvent,
     AgentEvent,
     TextDeltaEvent,
+    ThinkingDeltaEvent,
 )
 from agent.messages import AssistantMessage, ToolCall
 
@@ -60,6 +61,7 @@ class ToolCallBuilder:
 class ChatStreamParser:
     def __init__(self):
         self.content_parts: list[str] = []
+        self.thinking_parts: list[str] = []
         self.tool_call_builders: dict[int, ToolCallBuilder] = {}
 
     def _first_choice(self, chunk: dict) -> dict | None:
@@ -88,6 +90,14 @@ class ChatStreamParser:
 
         events: list[AgentEvent] = []
 
+        for field_name in ("reasoning_content", "reasoning", "thinking"):
+            thinking = delta.get(field_name)
+
+            if isinstance(thinking, str) and thinking:
+                self.thinking_parts.append(thinking)
+                events.append(ThinkingDeltaEvent(delta=thinking))
+                break
+
         content = delta.get("content", None)
 
         if isinstance(content, str) and content:
@@ -114,11 +124,13 @@ class ChatStreamParser:
             )
         ]
 
+        thinking = "".join(self.thinking_parts) or ""
         content = "".join(self.content_parts) or ""
 
         return AssistantDoneEvent(
             message=AssistantMessage(
                 content=content,
+                thinking=thinking,
                 tool_calls=tool_calls,
             )
         )

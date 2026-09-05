@@ -25,6 +25,7 @@ class AssistantMessage(BaseModel):
     role: Literal[MessageType.ASSISTANT] = MessageType.ASSISTANT
     content: str = ""
     tool_calls: list[ToolCall] = []
+    thinking: str = ""
 
 
 class ToolResultMessage(BaseModel):
