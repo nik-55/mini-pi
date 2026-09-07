@@ -1,8 +1,9 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
-from agent.events import AgentEvent
+from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
+from agent.messages import AgentMessage
 from agent.provider import ModelProvider
 from agent.session.entries import (
     LeafEntry,
@@ -47,6 +48,7 @@ class CodingSession:
         self.harness = harness
         self.last_parent_id = last_parent_id
         self.pending_initial_entry = pending_initial_entry
+        self._persistence_unsubscribe = self.harness.subscribe(self._on_agent_event)
 
     @classmethod
     async def load(cls, config: CodingSessionConfig) -> "CodingSession":
@@ -62,8 +64,14 @@ class CodingSession:
             last_parent_id = info.id
         else:
             latest_leaf = _latest_leaf_entry(entries)
-            leaf_id = latest_leaf.entry_id if latest_leaf else None
-            last_parent_id = leaf_id if leaf_id else entries[-1].id
+
+            if latest_leaf is not None:
+                leaf_id = latest_leaf.entry_id
+                last_parent_id = latest_leaf.entry_id
+            else:
+                # File Only has SessionInfoEntry, no messages yet
+                leaf_id = None
+                last_parent_id = entries[-1].id
 
         state = SessionState.from_entries(entries, leaf_id=leaf_id)
 
@@ -94,6 +102,25 @@ class CodingSession:
         tokens = estimate_context_tokens(self.harness.messages)
         return tokens > self.config.auto_compact_threshold
 
+    async def _on_agent_event(self, event: AgentEvent):
+        if isinstance(event, MessageEndEvent):
+            await self._persist_message(event.message)
+
+    async def _persist_message(self, message: AgentMessage):
+        if self.pending_initial_entry is not None:
+            await self.config.storage.append(self.pending_initial_entry)
+            self.pending_initial_entry = None
+
+        entry = MessageEntry(parent_id=self.last_parent_id, message=message)
+        await self.config.storage.append(entry)
+        self.last_parent_id = entry.id
+
+        leaf = LeafEntry(
+            parent_id=self.last_parent_id,
+            entry_id=self.last_parent_id,
+        )
+        await self.config.storage.append(leaf)
+
     async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
         if self.should_auto_compact():
             print(
@@ -101,24 +128,5 @@ class CodingSession:
                 flush=True,
             )
 
-        if self.pending_initial_entry is not None:
-            await self.config.storage.append(self.pending_initial_entry)
-            self.pending_initial_entry = None
-
-        start_index = len(self.harness.messages)
-
         async for event in self.harness.prompt(content):
             yield event
-
-        new_messages = self.harness.messages[start_index:]
-
-        for msg in new_messages:
-            entry = MessageEntry(parent_id=self.last_parent_id, message=msg)
-            await self.config.storage.append(entry)
-            self.last_parent_id = entry.id
-
-        if self.last_parent_id is not None:
-            leaf = LeafEntry(
-                parent_id=self.last_parent_id, entry_id=self.last_parent_id
-            )
-            await self.config.storage.append(leaf)

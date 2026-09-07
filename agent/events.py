@@ -2,7 +2,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from agent.messages import AssistantMessage
+from agent.messages import AgentMessage, AssistantMessage
 
 
 class TextDeltaEvent(BaseModel):
@@ -34,6 +34,10 @@ class ToolExecutionEndEvent(BaseModel):
     is_error: bool = False
 
 
+class MessageEndEvent(BaseModel):
+    message: AgentMessage
+
+
 AgentEvent = (
     TextDeltaEvent
     | ThinkingDeltaEvent
@@ -41,4 +45,5 @@ AgentEvent = (
     | AssistantErrorEvent
     | ToolExecutionStartEvent
     | ToolExecutionEndEvent
+    | MessageEndEvent
 )

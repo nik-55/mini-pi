@@ -1,8 +1,9 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import Optional
+import inspect
+from typing import Any, Optional
 
-from agent.events import AgentEvent
+from agent.events import AgentEvent, MessageEndEvent
 from agent.loop import run_agent_loop
 from agent.messages import AgentMessage, UserMessage
 from agent.provider import ModelProvider
@@ -26,12 +27,38 @@ class AgentHarness:
     ):
         self.messages = messages or []
         self.config = config
+        self._listeners: list[Callable[[AgentEvent], Any]] = []
 
     def append_message(self, message: AgentMessage) -> None:
         self.messages.append(message)
 
+    def subscribe(self, listener: Callable[[AgentEvent], Any]) -> Callable[[], None]:
+        self._listeners.append(listener)
+
+        def unsubscribe() -> None:
+            try:
+                self._listeners.remove(listener)
+            except ValueError:
+                pass
+
+        return unsubscribe
+
+    async def _notify(self, event: AgentEvent):
+        snapshot_listeners = list(self._listeners)
+
+        for listener in snapshot_listeners:
+            result = listener(event)
+
+            if inspect.isawaitable(result):
+                await result
+
     async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
-        self.append_message(UserMessage(content=content))
+        user_message = UserMessage(content=content)
+        self.append_message(message=user_message)
+        event = MessageEndEvent(message=user_message)
+        await self._notify(event)
+        yield event
+
         async for event in self.continue_():
             yield event
 
@@ -44,4 +71,5 @@ class AgentHarness:
             tools=self.config.tools,
             max_turns=self.config.max_turns,
         ):
+            await self._notify(event)
             yield event

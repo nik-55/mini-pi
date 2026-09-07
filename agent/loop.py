@@ -4,6 +4,7 @@ from agent.events import (
     AssistantDoneEvent,
     AssistantErrorEvent,
     AgentEvent,
+    MessageEndEvent,
     TextDeltaEvent,
     ThinkingDeltaEvent,
     ToolExecutionEndEvent,
@@ -51,6 +52,7 @@ async def run_agent_loop(
             return
 
         messages.append(assistant_message)
+        yield MessageEndEvent(message=assistant_message)
 
         if not assistant_message.tool_calls:
             return
@@ -78,7 +80,7 @@ async def run_agent_loop(
             tool_result_message = ToolResultMessage(
                 tool_call_id=tool_call.id,
                 tool_name=tool_call.name,
-                content=content,
+                content=content[:10_000],
                 is_error=is_error,
             )
 
@@ -90,3 +92,5 @@ async def run_agent_loop(
                 result=content,
                 is_error=is_error,
             )
+
+            yield MessageEndEvent(message=tool_result_message)
