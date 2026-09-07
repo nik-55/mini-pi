@@ -130,3 +130,6 @@ class CodingSession:
 
         async for event in self.harness.prompt(content):
             yield event
+
+    def cancel(self):
+        self.harness.cancel()

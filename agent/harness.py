@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 import inspect
 from typing import Any, Optional
 
+from agent.cancellation import CancellationSignal
 from agent.events import AgentEvent, MessageEndEvent
 from agent.loop import run_agent_loop
 from agent.messages import AgentMessage, UserMessage
@@ -28,6 +29,7 @@ class AgentHarness:
         self.messages = messages or []
         self.config = config
         self._listeners: list[Callable[[AgentEvent], Any]] = []
+        self._cancellation_signal: CancellationSignal | None = None
 
     def append_message(self, message: AgentMessage) -> None:
         self.messages.append(message)
@@ -63,13 +65,25 @@ class AgentHarness:
             yield event
 
     async def continue_(self) -> AsyncIterator[AgentEvent]:
-        async for event in run_agent_loop(
-            provider=self.config.provider,
-            model=self.config.model,
-            system=self.config.system,
-            messages=self.messages,
-            tools=self.config.tools,
-            max_turns=self.config.max_turns,
-        ):
-            await self._notify(event)
-            yield event
+        signal = CancellationSignal()
+        self._cancellation_signal = signal
+
+        try:
+            async for event in run_agent_loop(
+                provider=self.config.provider,
+                model=self.config.model,
+                system=self.config.system,
+                messages=self.messages,
+                tools=self.config.tools,
+                max_turns=self.config.max_turns,
+                signal=signal,
+            ):
+                await self._notify(event)
+                yield event
+        finally:
+            if self._cancellation_signal is signal:
+                self._cancellation_signal = None
+
+    def cancel(self):
+        if self._cancellation_signal is not None:
+            self._cancellation_signal.cancel()

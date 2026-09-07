@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 
+from agent.cancellation import CancellationSignal
 from agent.events import (
     AssistantDoneEvent,
     AssistantErrorEvent,
@@ -22,10 +23,14 @@ async def run_agent_loop(
     messages: list[AgentMessage],
     tools: list[AgentTool],
     max_turns: int = 40,
+    signal: CancellationSignal | None = None,
 ) -> AsyncIterator[AgentEvent]:
     tool_map = {t.name: t for t in tools}
 
     for _ in range(max_turns):
+        if signal is not None and signal.is_cancelled():
+            return
+
         assistant_message: AssistantMessage | None = None
 
         stream = provider.stream_response(
@@ -36,6 +41,9 @@ async def run_agent_loop(
         )
 
         async for event in stream:
+            if signal is not None and signal.is_cancelled():
+                return
+
             if isinstance(event, TextDeltaEvent):
                 yield event
             elif isinstance(event, ThinkingDeltaEvent):
@@ -58,6 +66,9 @@ async def run_agent_loop(
             return
 
         for tool_call in assistant_message.tool_calls:
+            if signal is not None and signal.is_cancelled():
+                return
+
             yield ToolExecutionStartEvent(
                 tool_call_id=tool_call.id,
                 tool_name=tool_call.name,
@@ -71,7 +82,7 @@ async def run_agent_loop(
                 is_error = True
             else:
                 try:
-                    content = await tool.execute(tool_call.arguments)
+                    content = await tool.execute(tool_call.arguments, signal=signal)
                     is_error = False
                 except Exception as exc:
                     content = f"Error executing tool '{tool_call.name}': {exc}"

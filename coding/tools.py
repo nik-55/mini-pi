@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 from typing import Any
 
+from agent.cancellation import CancellationSignal
 from agent.tools import AgentTool
 
 
@@ -163,7 +164,9 @@ def create_edit_tool():
 
 
 def create_bash_tool():
-    async def execute(arguments: dict[str, Any]) -> str:
+    async def execute(
+        arguments: dict[str, Any], signal: CancellationSignal | None = None
+    ) -> str:
         if shutil.which("bwrap") is None:
             raise ToolError("Bash is not available")
 
@@ -178,13 +181,47 @@ def create_bash_tool():
             stderr=asyncio.subprocess.STDOUT,
         )
 
+        communication_task = asyncio.create_task(process.communicate())
+        cancel_signal_task = asyncio.create_task(signal.wait()) if signal else None
+
+        wait_set = {communication_task}
+
+        if cancel_signal_task is not None:
+            wait_set.add(cancel_signal_task)
+
+        output = None
+
         try:
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            done, _ = await asyncio.wait(
+                wait_set,
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            # Timeout occurs when nothing is done
+            if not done:
+                return f"Error: Command timed out after '{timeout}' seconds"
+
+            if cancel_signal_task is not None and cancel_signal_task in done:
+                # If communication task is in done process is already completed
+                if communication_task not in done:
+                    return "Error: command cancelled by user"
+
+            stdout, _ = communication_task.result()
             output = stdout.decode("utf-8", errors="replace")
-        except TimeoutError:
-            process.kill()
-            await process.wait()
-            return f"Error: Command timed out after '{timeout}' seconds"
+        finally:
+            # Cleanup
+            if process.returncode is None:
+                # process still alive
+                # task.cancel only kill python task not os process
+                process.kill()
+                await process.wait()
+
+            if cancel_signal_task is not None and not cancel_signal_task.done():
+                cancel_signal_task.cancel()
+
+            if not communication_task.done():
+                communication_task.cancel()
 
         output = output or "(no output)"
         if process.returncode != 0:
