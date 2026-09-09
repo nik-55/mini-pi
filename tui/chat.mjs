@@ -145,7 +145,7 @@ class CollapsibleComponent extends Container {
 
 const root = new URL("..", import.meta.url).pathname;
 
-const py = spawn(`${root}.venv/bin/python`, ["-m", "coding.rpc"], {
+const py = spawn(`${root}.venv/bin/python`, ["-m", "coding.headless"], {
   cwd: root,
   stdio: ["pipe", "pipe", "inherit"],
 });
@@ -524,7 +524,7 @@ readline.createInterface({ input: py.stdout }).on("line", (line) => {
       say(`✗ ${e.error}`, red);
       break;
 
-    case "turn_end":
+    case "loop_end":
       if (thinking !== null) {
         thinking.label = "Thought";
         thinking.sync();
