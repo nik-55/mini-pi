@@ -19,6 +19,7 @@ from agent.messages import (
     UserMessage,
 )
 from ai.openai import OpenAIProvider
+from coding.extensions.loader import load_extensions_from_dir
 from coding.tools import (
     create_edit_tool,
     create_read_tool,
@@ -27,6 +28,7 @@ from coding.tools import (
 )
 from coding.session import CodingSessionConfig, CodingSession
 from coding.chat_session_manager import ChatSessionManager
+from coding.extensions.runtime import ExtensionRuntime
 
 system_prompt = """
 You are helpful assistant. You have access to user filesystem.
@@ -72,6 +74,12 @@ async def main():
     session_manager = ChatSessionManager()
     session_id, storage = session_manager.new_session_storage()
 
+    extension_runtime = ExtensionRuntime()
+    extension_dir = Path.cwd() / ".mini-pi" / "extensions"
+    extension_dir.mkdir(parents=True, exist_ok=True)
+
+    await load_extensions_from_dir(extension_dir, extension_runtime)
+
     config = CodingSessionConfig(
         provider=provider,
         model=model,
@@ -79,6 +87,7 @@ async def main():
         tools=tools,
         storage=storage,
         auto_compact_threshold=50_000,
+        extension_runtime=extension_runtime,
     )
 
     coding_session = await CodingSession.load(config)

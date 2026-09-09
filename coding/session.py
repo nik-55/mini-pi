@@ -14,6 +14,8 @@ from agent.session.entries import (
 from agent.session.state import SessionState
 from agent.session.storage import SessionStorage
 from agent.tools import AgentTool
+from coding.extensions.api import InputHookResult
+from coding.extensions.runtime import ExtensionRuntime
 from coding.tokens import estimate_context_tokens
 
 
@@ -26,6 +28,7 @@ class CodingSessionConfig:
     tools: list[AgentTool] = field(default_factory=list)
     max_turns: int = 40
     auto_compact_threshold: int | None = None
+    extension_runtime: ExtensionRuntime | None = None
 
 
 def _latest_leaf_entry(entries: list[SessionEntry]) -> LeafEntry | None:
@@ -75,11 +78,20 @@ class CodingSession:
 
         state = SessionState.from_entries(entries, leaf_id=leaf_id)
 
+        effective_tools = list(config.tools)
+
+        if config.extension_runtime is not None:
+            effective_tools.extend(config.extension_runtime.get_all_tools())
+
+            effective_tools = [
+                config.extension_runtime.wrap_tool(t) for t in effective_tools
+            ]
+
         harness_config = AgentHarnessConfig(
             provider=config.provider,
             model=config.model,
             system=config.system,
-            tools=config.tools,
+            tools=effective_tools,
             max_turns=config.max_turns,
         )
 
@@ -122,13 +134,30 @@ class CodingSession:
         await self.config.storage.append(leaf)
 
     async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
+        effective_content = content
+
+        if self.config.extension_runtime is not None:
+            input_result_hook: InputHookResult = (
+                await self.config.extension_runtime.run_input_hooks(effective_content)
+            )
+
+            if input_result_hook.action == "handled":
+                print(f"\n[Intercepted by hook]: {input_result_hook.reply}\n")
+                return
+
+            if (
+                input_result_hook.action == "continue"
+                and input_result_hook.text is not None
+            ):
+                effective_content = input_result_hook.text
+
         if self.should_auto_compact():
             print(
                 f"\n[Auto compaction triggered: context exceeded {self.config.auto_compact_threshold} tokens]\n",
                 flush=True,
             )
 
-        async for event in self.harness.prompt(content):
+        async for event in self.harness.prompt(effective_content):
             yield event
 
     def cancel(self):
