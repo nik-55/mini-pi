@@ -19,6 +19,12 @@ from agent.messages import (
     UserMessage,
 )
 from ai.openai import OpenAIProvider
+from coding.context import (
+    discover_project_context,
+    discover_skills,
+    format_project_context,
+    format_skills,
+)
 from coding.extensions.loader import load_extensions_from_dir
 from coding.tools import (
     create_edit_tool,
@@ -63,6 +69,16 @@ async def main():
     base_url = os.getenv("OPENAI_BASE_URL")
     model = os.getenv("MODEL")
 
+    cwd = Path.cwd()
+
+    context_files = discover_project_context(cwd)
+    skills = discover_skills(cwd)
+    dynamic_system_prompt: str = (
+        system_prompt.strip()
+        + format_project_context(context_files)
+        + format_skills(skills)
+    )
+
     provider = OpenAIProvider(api_key=api_key, base_url=base_url)
     tools = [
         create_bash_tool(),
@@ -75,7 +91,7 @@ async def main():
     session_id, storage = session_manager.new_session_storage()
 
     extension_runtime = ExtensionRuntime()
-    extension_dir = Path.cwd() / ".mini-pi" / "extensions"
+    extension_dir = cwd / ".mini-pi" / "extensions"
     extension_dir.mkdir(parents=True, exist_ok=True)
 
     await load_extensions_from_dir(extension_dir, extension_runtime)
@@ -83,7 +99,7 @@ async def main():
     config = CodingSessionConfig(
         provider=provider,
         model=model,
-        system=system_prompt,
+        system=dynamic_system_prompt,
         tools=tools,
         storage=storage,
         auto_compact_threshold=50_000,
