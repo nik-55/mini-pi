@@ -8,6 +8,7 @@ import {
 import {
     mdTheme,
     dim_color_wrapper,
+    type Colorfn,
 } from './theme.js';
 
 import { splitTextbyWidth } from "./formatters.js";
@@ -15,13 +16,15 @@ import { splitTextbyWidth } from "./formatters.js";
 const PREVIEW_LINES = 2;
 
 class MessageComponent extends Container {
+    public text: string = "";
+
     constructor() {
         super();
         this.text = "";
         this.sync();
     }
 
-    append(delta) {
+    append(delta: string) {
         this.text += delta;
         this.sync();
     }
@@ -36,24 +39,30 @@ class MessageComponent extends Container {
 }
 
 class CollapsibleComponent extends Container {
-    constructor(header, color) {
+    public header: string; // single line header, visible when folded or expanded
+    public color: Colorfn;
+    public detail: string = ""; // argument_json_str for tool call arguments
+    public text: string = ""; // tool_result or thinking_tokens
+    public expanded: boolean = false;
+
+    constructor(header: string, color: Colorfn) {
         super();
-        this.header = header; // single line header, visible when folded or expanded
+        this.header = header;
         this.color = color;
-        this.detail = ""; // argument_json_str for tool call arguments
-        this.text = ""; // tool_result or thinking_tokens
+        this.detail = "";
+        this.text = "";
         this.expanded = false;
         this.sync();
     }
 
-    setExpanded(expanded) {
+    setExpanded(expanded: boolean) {
         this.expanded = expanded;
         this.sync();
     }
 
     // What text to show at current expanded state
-    body() {
-        const parts = [];
+    body(): string {
+        const parts: string[] = [];
         if (this.expanded && this.detail) parts.push(this.detail);
         if (this.text) parts.push(this.text);
         return parts.join("\n").trim();

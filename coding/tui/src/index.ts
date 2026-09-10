@@ -7,6 +7,7 @@ import {
     Spacer,
     Text,
     TuiMainScreen,
+    type Component,
 } from "@earendil-works/pi-tui";
 
 import {
@@ -15,10 +16,11 @@ import {
     red_color_wrapper,
     magneta_color_wrapper,
     editorTheme,
+    type Colorfn,
 } from './theme.js';
 import { MessageComponent, CollapsibleComponent } from "./component.js";
 import { summarizeArgs } from './formatters.js';
-import { createAgentProcess } from "./agent.js";
+import { createAgentProcess, type AgentEvent } from "./agent.js";
 
 // UI Setup
 const terminal = new ProcessTerminal();
@@ -29,26 +31,26 @@ const editor = new Editor(tui, editorTheme, {
     paddingX: 1
 });
 
-function addBlock(component) {
+function addBlock(component: Component) {
     trajectoryContainer.addChild(component);
     trajectoryContainer.addChild(new Spacer(1));
     tui.requestRender();
 }
 
-function addText(text, color) {
+function addText(text: string, color?: Colorfn) {
     addBlock(new Text(color ? color(text) : text, 1, 0));
 }
 
 // State
-let busy = false;
-let expanded = false;
-const collapsibles = [];
-const tools_to_component_mapping = new Map();
-let currentAssistantMessageComponent = null;
-let currentThinkingBlock = null;
+let busy: boolean = false;
+let expanded: boolean = false;
+const collapsibles: CollapsibleComponent[] = [];
+const tools_to_component_mapping: Map<string, CollapsibleComponent> = new Map();
+let currentAssistantMessageComponent: MessageComponent | null = null;
+let currentThinkingBlock: CollapsibleComponent | null = null;
 
 
-function createCollapsible(header, color) {
+function createCollapsible(header: string, color: Colorfn): CollapsibleComponent {
     const block = new CollapsibleComponent(header, color);
     block.setExpanded(expanded);
     collapsibles.push(block);
@@ -84,7 +86,7 @@ agent.onExit(() => {
 })
 
 // Input Handling
-editor.onSubmit = (text) => {
+editor.onSubmit = (text: string) => {
     text = text.trim();
     if (!text) return;
 
@@ -104,7 +106,7 @@ editor.onSubmit = (text) => {
 };
 
 
-tui.addInputListener((data) => {
+tui.addInputListener((data: string) => {
     if (matchesKey(data, Key.ctrl("c"))) {
         if (busy) {
             agent.cancel();
@@ -123,7 +125,7 @@ tui.addInputListener((data) => {
 });
 
 // Agent Event Handler
-function handle_coding_agent_event(event) {
+function handle_coding_agent_event(event: AgentEvent) {
     switch (event.type) {
         case "ready": {
             addText(`mini-pi (${event.model})`, dim_color_wrapper);

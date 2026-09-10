@@ -1,5 +1,9 @@
-function get_color_wrapper(code) {
-    return (text) => `\x1b[${code}m${text}\x1b[0m`;
+import type { EditorTheme, MarkdownTheme, SelectListTheme } from "@earendil-works/pi-tui";
+
+export type Colorfn = (text: string) => string;
+
+function get_color_wrapper(code: number): Colorfn {
+    return (text: string) => `\x1b[${code}m${text}\x1b[0m`;
 }
 
 const dim_color_wrapper = get_color_wrapper(90); // Gray / muted (for thinking tokens)
@@ -7,11 +11,20 @@ const cyan_color_wrapper = get_color_wrapper(36); // Cyan (for user messages)
 const red_color_wrapper = get_color_wrapper(31); // Red (for errors)
 const magneta_color_wrapper = get_color_wrapper(35); // Magenta (for tools)
 
-const editorTheme = {
-    borderColor: dim_color_wrapper
+const editorSelectListTheme: SelectListTheme = {
+    selectedPrefix: cyan_color_wrapper,
+    selectedText: cyan_color_wrapper,
+    description: dim_color_wrapper,
+    scrollInfo: dim_color_wrapper,
+    noMatch: dim_color_wrapper,
+}
+
+const editorTheme: EditorTheme = {
+    borderColor: dim_color_wrapper,
+    selectList: editorSelectListTheme,
 };
 
-const mdTheme = {
+const mdTheme: MarkdownTheme = {
     heading: get_color_wrapper(1), // bold
 
     // [Click here](https://example.com)
