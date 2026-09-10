@@ -11,11 +11,7 @@ import {
     type Colorfn,
 } from './theme.js';
 
-import { splitTextbyWidth } from "./formatters.js";
-
-const PREVIEW_LINES = 2;
-
-class MessageComponent extends Container {
+class MarkdownMsgComponent extends Container {
     public text: string = "";
 
     constructor() {
@@ -60,34 +56,21 @@ class CollapsibleComponent extends Container {
         this.sync();
     }
 
-    // What text to show at current expanded state
     body(): string {
         const parts: string[] = [];
-        if (this.expanded && this.detail) parts.push(this.detail);
+        if (this.detail) parts.push(this.detail);
         if (this.text) parts.push(this.text);
         return parts.join("\n").trim();
     }
 
     sync() {
         this.clear();
-        const body = this.body();
-        const arrow = body ? (this.expanded ? "<" : ">") : " ";
+        const arrow = this.expanded ? "▼" : "▶";
 
         this.addChild(new TruncatedText(this.color(`${arrow} ${this.header}`), 1, 0));
 
-        if (body) {
-            const lines_by_width = splitTextbyWidth(body);
-            const shown = this.expanded ? lines_by_width : lines_by_width.slice(0, PREVIEW_LINES);
-
-            this.addChild(new Text(dim_color_wrapper(shown.join("\n")), 3, 0));
-
-            const hidden = lines_by_width.length - shown.length;
-
-            if (hidden > 0) {
-                this.addChild(
-                    new Text(dim_color_wrapper(` ...${hidden} more lines, ctrl+o to expand`), 3, 0)
-                );
-            }
+        if (this.expanded) {
+            this.addChild(new Text(dim_color_wrapper(this.body()), 1, 0));
         }
 
         super.invalidate();
@@ -96,5 +79,5 @@ class CollapsibleComponent extends Container {
 
 
 export {
-    MessageComponent, CollapsibleComponent
+    MarkdownMsgComponent, CollapsibleComponent
 };

@@ -1,81 +1,35 @@
 import {
-    Container,
     Editor,
     Key,
     matchesKey,
     ProcessTerminal,
-    Spacer,
-    Text,
     TuiMainScreen,
-    type Component,
 } from "@earendil-works/pi-tui";
 
 import {
     dim_color_wrapper,
     cyan_color_wrapper,
     red_color_wrapper,
-    magneta_color_wrapper,
     editorTheme,
-    type Colorfn,
 } from './theme.js';
-import { MessageComponent, CollapsibleComponent } from "./component.js";
-import { summarizeArgs } from './formatters.js';
-import { createAgentProcess, type AgentEvent } from "./agent.js";
+import { createAgentProcess } from "./agent.js";
+import { Trajectory } from "./trajectory.js";
+import type { AgentEvent } from "./types/events.js";
+import { ActivityLoader } from "./loader.js";
 
 // UI Setup
 const terminal = new ProcessTerminal();
 const tui = new TuiMainScreen(terminal);
 
-const trajectoryContainer = new Container();
 const editor = new Editor(tui, editorTheme, {
     paddingX: 1
 });
-
-function addBlock(component: Component) {
-    trajectoryContainer.addChild(component);
-    trajectoryContainer.addChild(new Spacer(1));
-    tui.requestRender();
-}
-
-function addText(text: string, color?: Colorfn) {
-    addBlock(new Text(color ? color(text) : text, 1, 0));
-}
+const trajectory = new Trajectory(() => tui.requestRender());
+const activityLoader = new ActivityLoader(tui, editor);
 
 // State
 let busy: boolean = false;
-let expanded: boolean = false;
-const collapsibles: CollapsibleComponent[] = [];
-const tools_to_component_mapping: Map<string, CollapsibleComponent> = new Map();
-let currentAssistantMessageComponent: MessageComponent | null = null;
-let currentThinkingBlock: CollapsibleComponent | null = null;
-
-
-function createCollapsible(header: string, color: Colorfn): CollapsibleComponent {
-    const block = new CollapsibleComponent(header, color);
-    block.setExpanded(expanded);
-    collapsibles.push(block);
-    addBlock(block);
-    return block;
-}
-
-
-function toggleAllCollapsibles() {
-    expanded = !expanded;
-    for (const block of collapsibles) {
-        block.setExpanded(expanded);
-    }
-
-    tui.requestRender();
-}
-
-
-function finishThinking() {
-    if (currentThinkingBlock != null) {
-        currentThinkingBlock.header = "Thought";
-        currentThinkingBlock.sync();
-        currentThinkingBlock = null;
-    }
-}
+let currentSessionId: string = "";
 
 // Agent
 const agent = createAgentProcess();
@@ -100,14 +54,36 @@ editor.onSubmit = (text: string) => {
 
     if (busy) return;
 
-    addText(`user> ${text}`, cyan_color_wrapper);
+    if (text == "/clear") {
+        agent.send({ "type": "new_session" });
+        return;
+    }
+
+    if (text == "/session") {
+        trajectory.addText(`Active session: ${currentSessionId}`);
+        return;
+    }
+
+    if (text.startsWith("/resume")) {
+        const id = text.slice("/resume".length).trim();
+        if (id) {
+            agent.resume(id);
+        } else {
+            agent.listSessions();
+        }
+
+        return;
+    }
+
+    activityLoader.start("working...")
+    trajectory.addText(`> ${text}`, cyan_color_wrapper);
     agent.prompt(text);
     busy = true;
 };
 
 
 tui.addInputListener((data: string) => {
-    if (matchesKey(data, Key.ctrl("c"))) {
+    if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.esc)) {
         if (busy) {
             agent.cancel();
             return { consume: true }; // Ctrl+c is being consumed, dont passes down
@@ -119,7 +95,7 @@ tui.addInputListener((data: string) => {
     }
 
     else if (matchesKey(data, Key.ctrl("o"))) {
-        toggleAllCollapsibles();
+        trajectory.toggleAllCollapsibles();
         return { consume: true };
     }
 });
@@ -128,77 +104,74 @@ tui.addInputListener((data: string) => {
 function handle_coding_agent_event(event: AgentEvent) {
     switch (event.type) {
         case "ready": {
-            addText(`mini-pi (${event.model})`, dim_color_wrapper);
+            trajectory.addText(`mini-pi (${event.model})`, dim_color_wrapper);
             break;
         }
 
         case "session": {
-            addText(`Session started: ${event.session_id}`, dim_color_wrapper);
+            currentSessionId = event.session_id;
+
+            if (event.messages.length > 0) {
+                trajectory.loadMessages(event.messages);
+                trajectory.addText(`Resumed ${currentSessionId} - ${event.messages.length} messages`, dim_color_wrapper);
+            } else {
+                trajectory.clear();
+                trajectory.addText(`Session started: ${event.session_id}`, dim_color_wrapper);
+            }
             break;
         }
 
         case "notice": {
-            addText(event.text, dim_color_wrapper);
+            trajectory.addText(event.text, dim_color_wrapper);
             break;
         }
 
         case "ThinkingDeltaEvent": {
-            if (currentThinkingBlock == null) {
-                currentThinkingBlock = createCollapsible("Thinking...", dim_color_wrapper);
-            }
-            currentThinkingBlock.text += event.delta;
-            currentThinkingBlock.sync();
-            tui.requestRender();
+            trajectory.handleThinkingDelta(event.delta);
             break;
         }
 
         case "TextDeltaEvent": {
-            finishThinking();
-            if (currentAssistantMessageComponent == null) {
-                currentAssistantMessageComponent = new MessageComponent();
-                addBlock(currentAssistantMessageComponent);
-            }
-            currentAssistantMessageComponent.append(event.delta);
-            tui.requestRender();
+            trajectory.handleTextDelta(event.delta);
             break;
         }
 
-
         case "ToolExecutionStartEvent": {
-            finishThinking();
-            currentAssistantMessageComponent = null;
-
-            const block = createCollapsible(`${event.tool_name}(${summarizeArgs(event.arguments ?? {})})`, magneta_color_wrapper)
-
-            block.detail = JSON.stringify(event.arguments, null, 2);
-            block.sync();
-            tools_to_component_mapping.set(event.tool_call_id, block);
-            tui.requestRender();
+            trajectory.handleToolStart(event.tool_name, event.tool_call_id, event.arguments);
             break;
         }
 
         case "ToolExecutionEndEvent": {
-            const block = tools_to_component_mapping.get(event.tool_call_id) ?? createCollapsible(event.tool_name, magneta_color_wrapper);
-
-            block.text = event.result;
-            block.color = event.is_error ? red_color_wrapper : magneta_color_wrapper;
-            block.sync()
-            tui.requestRender();
+            trajectory.handleToolEnd(event.tool_name, event.tool_call_id, event.result, event.is_error);
             break;
         }
 
         case "AssistantErrorEvent": {
-            finishThinking();
-            currentAssistantMessageComponent = null;
-
-            addText(`Error: ${event.error}`, red_color_wrapper);
+            activityLoader.stop();
+            trajectory.endLoop();
+            trajectory.addText(`Error: ${event.error}`, red_color_wrapper);
             break;
         }
 
         case "loop_end": {
-            finishThinking();
-            currentAssistantMessageComponent = null;
+            activityLoader.stop();
+            trajectory.endLoop();
             busy = false;
+            break;
+        }
+
+        case "sessions": {
+            if (event.rows.length == 0) {
+                trajectory.addText("No saved sessions", dim_color_wrapper);
+            }
+            else {
+                const lines = ["Saved Sessions:"];
+                for (const row of event.rows.slice(0, 15)) {
+                    lines.push(`    ${row.updated_at} ${row.id}`);
+                }
+                lines.push("use /resume <id> to switch");
+                trajectory.addText(lines.join("\n"), dim_color_wrapper);
+            }
             break;
         }
     }
@@ -206,7 +179,7 @@ function handle_coding_agent_event(event: AgentEvent) {
 
 agent.onEvent(handle_coding_agent_event);
 
-tui.addChild(trajectoryContainer);
+tui.addChild(trajectory.trajectoryContainer);
 tui.addChild(editor);
 
 tui.setFocus(editor);

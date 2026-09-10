@@ -59,6 +59,7 @@ const mdTheme: MarkdownTheme = {
 export {
     mdTheme,
     editorTheme,
+    editorSelectListTheme,
     dim_color_wrapper,
     cyan_color_wrapper,
     red_color_wrapper,

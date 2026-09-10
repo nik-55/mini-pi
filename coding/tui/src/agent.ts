@@ -1,66 +1,6 @@
 import { spawn } from "node:child_process";
 import readline from "node:readline";
-
-export interface ReadyEvent {
-    type: "ready";
-    model: string;
-}
-
-export interface SessionEvent {
-    type: "session";
-    session_id: string;
-    messages: unknown[];
-}
-
-export interface NoticeEvent {
-    type: "notice";
-    text: string;
-}
-
-export interface ThinkingDeltaEvent {
-    type: "ThinkingDeltaEvent";
-    delta: string;
-}
-
-export interface TextDeltaEvent {
-    type: "TextDeltaEvent";
-    delta: string;
-}
-
-export interface ToolExecutionStartEvent {
-    type: "ToolExecutionStartEvent";
-    tool_name: string;
-    arguments?: Record<string, unknown>;
-    tool_call_id: string;
-}
-
-export interface ToolExecutionEndEvent {
-    type: "ToolExecutionEndEvent";
-    tool_name: string;
-    result: string;
-    tool_call_id: string;
-    is_error: boolean;
-}
-
-export interface AssistantErrorEvent {
-    type: "AssistantErrorEvent";
-    error: string;
-}
-
-export interface LoopEndEvent {
-    type: "loop_end";
-}
-
-export type AgentEvent =
-    | ReadyEvent
-    | SessionEvent
-    | NoticeEvent
-    | ThinkingDeltaEvent
-    | TextDeltaEvent
-    | ToolExecutionStartEvent
-    | ToolExecutionEndEvent
-    | AssistantErrorEvent
-    | LoopEndEvent;
+import type { AgentEvent } from "./types/events.js";
 
 export function createAgentProcess() {
     const project_root_dir_path = new URL("../../..", import.meta.url).pathname;
@@ -91,5 +31,7 @@ export function createAgentProcess() {
         onExit: (handler: () => void) => {
             coding_agent_process.on("exit", handler);
         },
+        resume: (id: string) => send_msg_to_coding_agent({ "type": "resume", "id": id }),
+        listSessions: () => send_msg_to_coding_agent({ "type": "list_sessions" }),
     }
 }
