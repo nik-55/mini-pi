@@ -1,6 +1,4 @@
 import asyncio
-import os
-from pathlib import Path
 import sys
 
 from dotenv import load_dotenv
@@ -18,27 +16,10 @@ from agent.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from ai.openai import OpenAIProvider
-from coding.context import (
-    discover_project_context,
-    discover_skills,
-    format_project_context,
-    format_skills,
-)
-from coding.extensions.loader import load_extensions_from_dir
-from coding.tools import (
-    create_edit_tool,
-    create_read_tool,
-    create_bash_tool,
-    create_write_tool,
-)
-from coding.session import CodingSessionConfig, CodingSession
-from coding.chat_session_manager import ChatSessionManager
-from coding.extensions.runtime import ExtensionRuntime
 
-system_prompt = """
-You are helpful assistant. You have access to user filesystem.
-"""
+from coding.session_factory import build_session_config
+from coding.session import CodingSession
+from coding.chat_session_manager import ChatSessionManager
 
 
 def clear_screen():
@@ -65,50 +46,17 @@ def print_session_history(messages: list[AgentMessage]):
 
 
 async def main():
-    api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL")
-    model = os.getenv("MODEL")
-
-    cwd = Path.cwd()
-
-    context_files = discover_project_context(cwd)
-    skills = discover_skills(cwd)
-    dynamic_system_prompt: str = (
-        system_prompt.strip()
-        + format_project_context(context_files)
-        + format_skills(skills)
-    )
-
-    provider = OpenAIProvider(api_key=api_key, base_url=base_url)
-    tools = [
-        create_bash_tool(),
-        create_read_tool(),
-        create_write_tool(),
-        create_edit_tool(),
-    ]
-
     session_manager = ChatSessionManager()
     session_id, storage = session_manager.new_session_storage()
 
-    extension_runtime = ExtensionRuntime()
-    extension_dir = cwd / ".mini-pi" / "extensions"
-    extension_dir.mkdir(parents=True, exist_ok=True)
-
-    await load_extensions_from_dir(extension_dir, extension_runtime)
-
-    config = CodingSessionConfig(
-        provider=provider,
-        model=model,
-        system=dynamic_system_prompt,
-        tools=tools,
-        storage=storage,
-        auto_compact_threshold=50_000,
-        extension_runtime=extension_runtime,
-    )
+    config = await build_session_config(storage=storage)
 
     coding_session = await CodingSession.load(config)
 
-    print(f"Mini Pi started with model '{model}'. Session: {session_id}.\n", flush=True)
+    print(
+        f"Mini Pi started with model '{config.model}'. Session: {session_id}.\n",
+        flush=True,
+    )
 
     while True:
         user_input = input("user> ").strip()
