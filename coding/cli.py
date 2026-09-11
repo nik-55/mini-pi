@@ -17,6 +17,8 @@ from agent.messages import (
     UserMessage,
 )
 
+from coding.command_factory import build_command_registry
+from coding.commands import CommandRegistry, CommandResult
 from coding.session_factory import build_session_config
 from coding.session import CodingSession
 from coding.chat_session_manager import ChatSessionManager
@@ -52,6 +54,9 @@ async def main():
     config = await build_session_config(storage=storage)
 
     coding_session = await CodingSession.load(config)
+    command_registry: CommandRegistry = build_command_registry(
+        extension_runtime=config.extension_runtime
+    )
 
     print(
         f"Mini Pi started with model '{config.model}'. Session: {session_id}.\n",
@@ -64,20 +69,20 @@ async def main():
         if not user_input:
             continue
 
-        if user_input.lower() in ("exit",):
-            print("\nGoodBye")
-            break
+        command_result: CommandResult = command_registry.execute(text=user_input)
 
-        if user_input.startswith("/"):
-            parts = user_input.lower().split(maxsplit=1)
-            cmd = parts[0]
-            arg = parts[1].strip() if len(parts) > 1 else None
+        if command_result.is_command:
+            if command_result.message:
+                print(f"\n{command_result.message}\n", flush=True)
 
-            if cmd in ("/exit",):
+            if command_result.action is None:
+                continue
+
+            if command_result.action.action == "exit":
                 print("\nGoodBye")
                 break
 
-            if cmd in ("/clear",):
+            if command_result.action.action == "clear":
                 session_id, storage = session_manager.new_session_storage()
                 config.storage = storage
                 coding_session = await CodingSession.load(config)
@@ -85,12 +90,14 @@ async def main():
                 print(f"\nStarting new session: {session_id}\n", flush=True)
                 continue
 
-            elif cmd == "/session":
+            if command_result.action.action == "session":
                 print(f"Active session: {session_id}", flush=True)
                 continue
 
-            elif cmd == "/resume":
-                if not arg:
+            if command_result.action.action == "resume":
+                args = command_result.action.args
+
+                if not args:
                     session_rows = session_manager.list_sessions()
                     print("\nAvaliable Sessions:")
                     for s in session_rows:
@@ -102,9 +109,9 @@ async def main():
                     print("Use `/resume <id>` to switch\n")
                     continue
 
-                matched = session_manager.get_session_storage(arg)
+                matched = session_manager.get_session_storage(args)
                 if matched is None:
-                    print(f"No session with '{arg}'", flush=True)
+                    print(f"No session with '{args}'", flush=True)
                     continue
 
                 session_id, storage = matched

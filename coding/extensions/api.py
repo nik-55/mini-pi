@@ -4,6 +4,7 @@ from typing import Any, Awaitable, Literal
 from pydantic import BaseModel
 
 from agent.tools import AgentTool
+from coding.commands import SlashCommand
 
 
 class ToolCallHookPayload(BaseModel):
@@ -50,10 +51,14 @@ class ExtensionAPI:
     def __init__(self, extension_name: str):
         self.extension_name = extension_name
         self.tools: list[AgentTool] = []
+        self.commands: list[SlashCommand] = []
         self.hooks: dict[str, list[HookHandler]] = {}
 
     def register_tool(self, tool: AgentTool):
         self.tools.append(tool)
+
+    def register_command(self, command: SlashCommand):
+        self.commands.append(command)
 
     # @api.on
     def on(self, event: str):

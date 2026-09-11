@@ -2,6 +2,7 @@ import inspect
 from typing import Any
 
 from agent.tools import AgentTool
+from coding.commands import SlashCommand
 from coding.extensions.api import (
     ExtensionAPI,
     HookHandler,
@@ -36,6 +37,14 @@ class ExtensionRuntime:
             tools.extend(ext.tools)
 
         return tools
+
+    def get_all_commands(self) -> list[SlashCommand]:
+        commands: list[SlashCommand] = []
+
+        for ext in self.extensions:
+            commands.extend(ext.commands)
+
+        return commands
 
     def wrap_tool(self, tool: AgentTool) -> AgentTool:
         original_execute = tool.execute
