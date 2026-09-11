@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "minipi"
+version = "0.1.0"
+description = "A minimalist coding agent"
+readme = "README.md"
+
+# Test for python>=3.11
+# uv venv /tmp/test-mini-pi-311 --python 3.11 && \
+# uv pip install -r requirements.txt --python /tmp/test-mini-pi-311/bin/python && \
+# PYTHONPATH=. /tmp/test-mini-pi-311/bin/python -c "
+# import agent.messages
+# import agent.loop
+# import agent.harness
+# import ai.openai
+# import coding.session
+# import coding.headless
+# import coding.tools
+# import coding.cli
+# print('SUCCESS: Python 3.11 import check passed.')
+# "
+#
+# PYTHONPATH=. /tmp/test-mini-pi-311/bin/python -m coding.cli
+#
+# rm -rf /tmp/test-mini-pi-311
+
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.1",
+    "pydantic>=2.13.5",
+    "python-dotenv>=1.2.3",
+    "prompt_toolkit>=3.0.53",
+]
+
+[project.scripts]
+minipi = "coding.entrypoint:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agent", "ai", "coding"]
+artifacts = ["coding/tui_dist/*"]

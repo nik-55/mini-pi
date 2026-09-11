@@ -2,11 +2,21 @@ import { spawn } from "node:child_process";
 import readline from "node:readline";
 import type { AgentEvent } from "./types/events.js";
 
-export function createAgentProcess() {
+function get_python_bin(): string {
     const project_root_dir_path = new URL("../../..", import.meta.url).pathname;
-    const coding_agent_process = spawn(`${project_root_dir_path}.venv/bin/python`,
+    const default_local_venv = `${project_root_dir_path}.venv/bin/python`;
+
+    const python_bin = process.env.MINI_PI_PYTHON || default_local_venv;
+
+    return python_bin;
+}
+
+export function createAgentProcess() {
+    const python_bin = get_python_bin();
+
+    const coding_agent_process = spawn(python_bin,
         ["-m", "coding.headless"], {
-        cwd: project_root_dir_path,
+        cwd: process.cwd(),
         stdio: ["pipe", "pipe", "inherit"], // stdin (node can write to), stdout (node can read from), stderr (any errors, warnings stream to parent terminal directly)
     });
 

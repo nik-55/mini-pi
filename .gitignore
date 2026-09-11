@@ -2,3 +2,4 @@
 __pycache__
 .env
 .mini-pi
+tui_dist/

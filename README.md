@@ -15,3 +15,16 @@ The current state:
 - Session persistence
 - A few basic commands (/clear, /session, /resume, /exit)
 - REPL only for now
+
+
+## Setup
+
+- clone the repo
+- install the tool using `uv tool install .`
+- export the environment variables:
+```python
+export OPENAI_API_KEY=
+export OPENAI_BASE_URL=
+export MODEL=
+```
+- run `minipi` from any of your project
