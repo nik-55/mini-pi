@@ -19,8 +19,9 @@ The current state:
 
 ## Setup
 
-- clone the repo
-- install the tool using `uv tool install .`
+- requirements: nodejs, python and uv
+- see python package [here](https://pypi.org/project/mini-pi-agent/)
+- install the tool using `uv tool install mini-pi-agent`
 - export the environment variables:
 ```python
 export OPENAI_API_KEY=

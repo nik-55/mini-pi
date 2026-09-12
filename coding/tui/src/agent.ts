@@ -15,7 +15,7 @@ export function createAgentProcess() {
     const python_bin = get_python_bin();
 
     const coding_agent_process = spawn(python_bin,
-        ["-m", "coding.headless"], {
+        ["-P", "-m", "coding.headless"], {
         cwd: process.cwd(),
         stdio: ["pipe", "pipe", "inherit"], // stdin (node can write to), stdout (node can read from), stderr (any errors, warnings stream to parent terminal directly)
     });
