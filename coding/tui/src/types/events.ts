@@ -48,6 +48,11 @@ export interface AssistantErrorEvent {
     error: string;
 }
 
+export interface AssistantDoneEvent {
+    type: "AssistantDoneEvent",
+    message: Message,
+}
+
 export interface LoopEndEvent {
     type: "loop_end";
 }
@@ -73,5 +78,6 @@ export type AgentEvent =
     | ToolExecutionStartEvent
     | ToolExecutionEndEvent
     | AssistantErrorEvent
+    | AssistantDoneEvent
     | LoopEndEvent
     | ListSessionsEvent;

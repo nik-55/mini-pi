@@ -67,18 +67,25 @@ async def main():
 
         kind = rpc_client_msg.get("type", None)
 
-        if kind == "prompt":
+        if kind in ("prompt", "steer", "follow_up"):
+            text = rpc_client_msg.get("text", "")
+
             if is_running():
-                emit(
-                    {
-                        "type": "notice",
-                        "text": "Unsupported while agent is already running",
-                    }
-                )
+                streaming_behaviour = kind
+
+                async for _ in coding_session.prompt(
+                    text,
+                    streaming_behaviour=streaming_behaviour,
+                ):
+                    pass
+
                 continue
 
             loop_task = asyncio.create_task(
-                run_loop(coding_session, rpc_client_msg.get("text", ""))
+                run_loop(
+                    coding_session,
+                    text=text,
+                )
             )
         elif kind == "cancel":
             coding_session.cancel()

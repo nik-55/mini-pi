@@ -39,8 +39,7 @@ agent.onExit(() => {
     process.exit(0);
 })
 
-// Input Handling
-editor.onSubmit = (text: string) => {
+function submitInput(text: string, isFollowup: boolean = false) {
     text = text.trim();
     if (!text) return;
 
@@ -52,7 +51,17 @@ editor.onSubmit = (text: string) => {
         process.exit(0);
     }
 
-    if (busy) return;
+    if (busy) {
+        if (isFollowup) {
+            trajectory.addText(`follow-up > ${text}`, cyan_color_wrapper);
+            agent.follow_up(text);
+        }
+        else {
+            trajectory.addText(`steer > ${text}`, cyan_color_wrapper);
+            agent.steer(text);
+        }
+        return;
+    }
 
     if (text == "/clear") {
         agent.send({ "type": "new_session" });
@@ -79,6 +88,11 @@ editor.onSubmit = (text: string) => {
     trajectory.addText(`> ${text}`, cyan_color_wrapper);
     agent.prompt(text);
     busy = true;
+}
+
+// Input Handling
+editor.onSubmit = (text: string) => {
+    return submitInput(text, false);
 };
 
 
@@ -96,6 +110,12 @@ tui.addInputListener((data: string) => {
 
     else if (matchesKey(data, Key.ctrl("o"))) {
         trajectory.toggleAllCollapsibles();
+        return { consume: true };
+    }
+
+    else if (matchesKey(data, Key.alt("enter"))) {
+        const text = editor.getText().trim();
+        submitInput(text, true);
         return { consume: true };
     }
 });
@@ -153,6 +173,13 @@ function handle_coding_agent_event(event: AgentEvent) {
             break;
         }
 
+        case "AssistantDoneEvent": {
+            trajectory.finishThinking();
+            trajectory.currentAssistantMarkdownMsgComponent = null;
+            trajectory.addSpacer(1);
+            break;
+        }
+
         case "loop_end": {
             activityLoader.stop();
             trajectory.endLoop();
@@ -174,6 +201,7 @@ function handle_coding_agent_event(event: AgentEvent) {
             }
             break;
         }
+
     }
 }
 

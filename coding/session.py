@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from typing import Literal
 
 from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
@@ -133,7 +134,11 @@ class CodingSession:
         )
         await self.config.storage.append(leaf)
 
-    async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
+    async def prompt(
+        self,
+        content: str,
+        streaming_behaviour: Literal["steer", "follow_up"] | None = None,
+    ) -> AsyncIterator[AgentEvent]:
         effective_content = content
 
         if self.config.extension_runtime is not None:
@@ -150,6 +155,16 @@ class CodingSession:
                 and input_result_hook.text is not None
             ):
                 effective_content = input_result_hook.text
+
+        if self.harness.is_running:
+            streaming_behaviour = streaming_behaviour or "steer"
+
+            if streaming_behaviour == "steer":
+                self.harness.msg_queue_when_running.steer(effective_content)
+            elif streaming_behaviour == "follow_up":
+                self.harness.msg_queue_when_running.follow_up(effective_content)
+
+            return
 
         if self.should_auto_compact():
             print(

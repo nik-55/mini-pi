@@ -8,6 +8,7 @@ from agent.events import AgentEvent, MessageEndEvent
 from agent.loop import run_agent_loop
 from agent.messages import AgentMessage, UserMessage
 from agent.provider import ModelProvider
+from agent.queue import MessageQueueHandler
 from agent.tools import AgentTool
 
 
@@ -30,6 +31,8 @@ class AgentHarness:
         self.config = config
         self._listeners: list[Callable[[AgentEvent], Any]] = []
         self._cancellation_signal: CancellationSignal | None = None
+        self.is_running: bool = False
+        self.msg_queue_when_running = MessageQueueHandler()
 
     def append_message(self, message: AgentMessage) -> None:
         self.messages.append(message)
@@ -55,18 +58,25 @@ class AgentHarness:
                 await result
 
     async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
+        if self.is_running:
+            raise RuntimeError(
+                "Agent is already running, use msg_queue_when_running to queue messages"
+            )
+
         user_message = UserMessage(content=content)
         self.append_message(message=user_message)
         event = MessageEndEvent(message=user_message)
         await self._notify(event)
         yield event
 
-        async for event in self.continue_():
+        async for event in self._continue():
             yield event
 
-    async def continue_(self) -> AsyncIterator[AgentEvent]:
+    async def _continue(self) -> AsyncIterator[AgentEvent]:
         signal = CancellationSignal()
         self._cancellation_signal = signal
+
+        self.is_running = True
 
         try:
             async for event in run_agent_loop(
@@ -77,12 +87,16 @@ class AgentHarness:
                 tools=self.config.tools,
                 max_turns=self.config.max_turns,
                 signal=signal,
+                get_steering_messages=self.msg_queue_when_running.drain_steering,
+                get_followup_messages=self.msg_queue_when_running.drain_follow_up,
             ):
                 await self._notify(event)
                 yield event
         finally:
             if self._cancellation_signal is signal:
                 self._cancellation_signal = None
+
+            self.is_running = False
 
     def cancel(self):
         if self._cancellation_signal is not None:

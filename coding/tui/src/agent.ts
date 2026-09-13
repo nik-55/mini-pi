@@ -26,6 +26,8 @@ export function createAgentProcess() {
     return {
         send: send_msg_to_coding_agent,
         prompt: (text: string) => send_msg_to_coding_agent({ "type": "prompt", "text": text }),
+        steer: (text: string) => send_msg_to_coding_agent({ "type": "steer", "text": text }),
+        follow_up: (text: string) => send_msg_to_coding_agent({ "type": "follow_up", "text": text }),
         cancel: () => send_msg_to_coding_agent({ "type": "cancel" }),
         kill: () => coding_agent_process.kill(),
         onEvent: (handler: (event: AgentEvent) => void) => {
