@@ -16,6 +16,7 @@ import { createAgentProcess } from "./agent.js";
 import { Trajectory } from "./trajectory.js";
 import type { AgentEvent } from "./types/events.js";
 import { ActivityLoader } from "./loader.js";
+import { TUIHeader } from "./header.js";
 
 // UI Setup
 const terminal = new ProcessTerminal();
@@ -25,6 +26,7 @@ const editor = new Editor(tui, editorTheme, {
     paddingX: 1
 });
 const trajectory = new Trajectory(() => tui.requestRender());
+const tuiHeader = new TUIHeader(() => tui.requestRender());
 const activityLoader = new ActivityLoader(tui, editor);
 
 // State
@@ -42,6 +44,8 @@ agent.onExit(() => {
 function submitInput(text: string, isFollowup: boolean = false) {
     text = text.trim();
     if (!text) return;
+
+    editor.addToHistory(text);
 
     editor.setText("");
 
@@ -95,9 +99,11 @@ editor.onSubmit = (text: string) => {
     return submitInput(text, false);
 };
 
+let lastEscTime = 0;
+const DOUBLE_ESC_TIMEOUT_MS = 400;
 
 tui.addInputListener((data: string) => {
-    if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.esc)) {
+    if (matchesKey(data, Key.ctrl("c"))) {
         if (busy) {
             agent.cancel();
             return { consume: true }; // Ctrl+c is being consumed, dont passes down
@@ -118,13 +124,36 @@ tui.addInputListener((data: string) => {
         submitInput(text, true);
         return { consume: true };
     }
+
+    else if ((matchesKey(data, Key.esc))) {
+        if (busy) {
+            agent.cancel();
+            return { consume: true };
+        }
+
+        if (editor.isShowingAutocomplete()) {
+            return; // Editor will handle auto complete request
+        }
+
+        const now = Date.now();
+        if (now - lastEscTime <= DOUBLE_ESC_TIMEOUT_MS) {
+            editor.setText("");
+            lastEscTime = 0;
+        }
+        else {
+            lastEscTime = now;
+        }
+
+        return { consume: true };
+    }
 });
 
 // Agent Event Handler
 function handle_coding_agent_event(event: AgentEvent) {
     switch (event.type) {
         case "ready": {
-            trajectory.addText(`mini-pi (${event.model})`, dim_color_wrapper);
+            tuiHeader.currentModel = event.model;
+            tuiHeader.updateHeader();
             break;
         }
 
@@ -133,6 +162,12 @@ function handle_coding_agent_event(event: AgentEvent) {
 
             if (event.messages.length > 0) {
                 trajectory.loadMessages(event.messages);
+
+                for (const m of event.messages) {
+                    if (m.role == "user" && m.content) {
+                        editor.addToHistory(m.content);
+                    }
+                }
                 trajectory.addText(`Resumed ${currentSessionId} - ${event.messages.length} messages`, dim_color_wrapper);
             } else {
                 trajectory.clear();
@@ -207,6 +242,7 @@ function handle_coding_agent_event(event: AgentEvent) {
 
 agent.onEvent(handle_coding_agent_event);
 
+tui.addChild(tuiHeader.headerContainer);
 tui.addChild(trajectory.trajectoryContainer);
 tui.addChild(editor);
 
