@@ -54,6 +54,14 @@ def _resume_command_handler(context: CommandContext) -> CommandResult:
     )
 
 
+def _compaction_command_handler(context: CommandContext)->CommandResult:
+    return CommandResult(
+        action=CommandAction(
+            action="compact",
+            args=context.args,
+        )
+    )
+
 def build_command_registry(
     extension_runtime: ExtensionRuntime | None = None,
 ) -> CommandRegistry:
@@ -86,6 +94,11 @@ def build_command_registry(
             description="List saved sessions or resume a specific session.",
             handler=_resume_command_handler,
         ),
+        SlashCommand(
+            name="compact",
+            description="Compact conversation history with optional focus instructions.",
+            handler=_compaction_command_handler,
+        )
     ]
 
     effective_commands = default_commands

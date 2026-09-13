@@ -37,6 +37,9 @@ class AgentHarness:
     def append_message(self, message: AgentMessage) -> None:
         self.messages.append(message)
 
+    def replace_messages(self, messages: list[AgentMessage]) -> None:
+        self.messages = list(messages)
+
     def subscribe(self, listener: Callable[[AgentEvent], Any]) -> Callable[[], None]:
         self._listeners.append(listener)
 

@@ -43,7 +43,7 @@ class CommandContext:
 
 
 class CommandAction(BaseModel):
-    action: Literal["exit", "clear", "resume", "session"]
+    action: Literal["exit", "clear", "resume", "session", "compact"]
     args: str | None = None  # part of command after /cmd
 
 

@@ -4,9 +4,10 @@ from typing import Literal
 
 from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
-from agent.messages import AgentMessage
+from agent.messages import AgentMessage, UserMessage
 from agent.provider import ModelProvider
 from agent.session.entries import (
+    CompactionEntry,
     LeafEntry,
     MessageEntry,
     SessionEntry,
@@ -15,6 +16,7 @@ from agent.session.entries import (
 from agent.session.state import SessionState
 from agent.session.storage import SessionStorage
 from agent.tools import AgentTool
+from coding.compaction import find_compaction_cut, generate_compaction_summary
 from coding.extensions.api import InputHookResult
 from coding.extensions.runtime import ExtensionRuntime
 from coding.tokens import estimate_context_tokens
@@ -171,9 +173,52 @@ class CodingSession:
                 f"\n[Auto compaction triggered: context exceeded {self.config.auto_compact_threshold} tokens]\n",
                 flush=True,
             )
+            await self.compact()
 
         async for event in self.harness.prompt(effective_content):
             yield event
+
+    async def compact(self, custom_instructions: str | None = None) -> str:
+        cut = find_compaction_cut(self.harness.messages)
+
+        if cut is None:
+            return "Not enough context to compact"
+
+        messages_to_summarize = self.harness.messages[:cut]
+        retained_tail = self.harness.messages[cut:]
+
+        summary = await generate_compaction_summary(
+            provider=self.config.provider,
+            model=self.config.model,
+            messages_to_summarize=messages_to_summarize,
+            custom_instructions=custom_instructions,
+        )
+
+        if self.pending_initial_entry is not None:
+            await self.config.storage.append(self.pending_initial_entry)
+            self.pending_initial_entry = None
+
+        compaction_entry = CompactionEntry(
+            parent_id=self.last_parent_id,
+            summary=summary,
+            retained_tail=retained_tail,
+        )
+
+        await self.config.storage.append(compaction_entry)
+        self.last_parent_id = compaction_entry.id
+
+        leaf = LeafEntry(
+            parent_id=self.last_parent_id,
+            entry_id=self.last_parent_id,
+        )
+        await self.config.storage.append(leaf)
+
+        summary_msg = UserMessage(
+            content=f"Previously conversation summary: \n{summary}"
+        )
+        self.harness.replace_messages([summary_msg, *retained_tail])
+
+        return f"Compacted {len(messages_to_summarize)} messages"
 
     def cancel(self):
         self.harness.cancel()
