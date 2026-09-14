@@ -120,6 +120,11 @@ function submitInput(text: string, isFollowup: boolean = false) {
         return;
     }
 
+    if (text == "/rewind") {
+        agent.getRewindTargets();
+        return;
+    }
+
     if (text.startsWith("/resume")) {
         const id = text.slice("/resume".length).trim();
         if (id) {
@@ -302,6 +307,35 @@ function handle_coding_agent_event(event: AgentEvent) {
             break;
         }
 
+        case "rewind_targets": {
+            if (event.targets.length == 0) {
+                trajectory.addText("No message to rewind to", dim_color_wrapper);
+            } else {
+                const items: SelectItem[] = event.targets.map((t) => {
+                    const text = t.text.trim() || "(empty message)";
+                    const truncated = text.length > 70 ? text.slice(0, 67) + "..." : text;
+                    return {
+                        value: t.entry_id,
+                        label: truncated,
+                        description: t.text,
+                    }
+                })
+
+                showPicker({
+                    title: "Select message to rewind to",
+                    items,
+                }).then((selected) => {
+                    if (selected) {
+                        editor.setText(selected.description ?? "(empty message)");
+                        tui.setFocus(editor);
+                        tui.requestRender();
+                        agent.rewind(selected.value);
+                    }
+                })
+            }
+
+            break;
+        }
     }
 }
 
@@ -319,6 +353,9 @@ const slashCommands: SlashCommand[] = [
         argumentHint: "<id>"
     },
     { name: "exit", description: "Exit Mini-Pi" },
+    {
+        name: "rewind", description: "Rewind conversation to a previous user message"
+    },
 ]
 
 editor.setAutocompleteProvider(

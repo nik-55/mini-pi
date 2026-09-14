@@ -45,5 +45,7 @@ export function createAgentProcess() {
         },
         resume: (id: string) => send_msg_to_coding_agent({ "type": "resume", "id": id }),
         listSessions: () => send_msg_to_coding_agent({ "type": "list_sessions" }),
+        getRewindTargets: () => send_msg_to_coding_agent({ "type": "get_rewind_targets" }),
+        rewind: (entryId: string) => send_msg_to_coding_agent({ "type": "rewind", "entry_id": entryId }),
     }
 }

@@ -69,6 +69,15 @@ export interface ListSessionsEvent {
     rows: ListSessionRow[];
 }
 
+export interface RewindTargetRow {
+    entry_id: string;
+    text: string;
+}
+
+export interface RewindTargetsEvent {
+    type: "rewind_targets";
+    targets: RewindTargetRow[];
+}
 
 export type AgentEvent =
     | ReadyEvent
@@ -81,4 +90,5 @@ export type AgentEvent =
     | AssistantErrorEvent
     | AssistantDoneEvent
     | LoopEndEvent
-    | ListSessionsEvent;
+    | ListSessionsEvent
+    | RewindTargetsEvent;

@@ -2,6 +2,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Literal
 
+from pydantic import BaseModel
+
 from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
 from agent.messages import AgentMessage, UserMessage
@@ -15,6 +17,7 @@ from agent.session.entries import (
 )
 from agent.session.state import SessionState
 from agent.session.storage import SessionStorage
+from agent.session.tree import entries_by_id
 from agent.tools import AgentTool
 from coding.compaction import find_compaction_cut, generate_compaction_summary
 from coding.extensions.api import InputHookResult
@@ -40,6 +43,11 @@ def _latest_leaf_entry(entries: list[SessionEntry]) -> LeafEntry | None:
             return entry
 
     return
+
+
+class RewindTarget(BaseModel):
+    entry_id: str
+    text: str
 
 
 class CodingSession:
@@ -135,6 +143,70 @@ class CodingSession:
             entry_id=self.last_parent_id,
         )
         await self.config.storage.append(leaf)
+
+    async def get_rewind_targets(self) -> list[RewindTarget]:
+        if self.last_parent_id is None:
+            return []
+
+        # For now since AgentMessage dont carry entry ids
+        # and also compaction message is stored as User Message in
+        # self.harness.messages, we are reading entries again from storage
+
+        entries = await self.config.storage.read_all()
+
+        if not entries:
+            return []
+
+        rewind_entries = SessionState.get_rewind_entries(
+            entries,
+            self.last_parent_id,
+        )
+
+        return [
+            RewindTarget(
+                entry_id=e.id,
+                text=e.message.content,
+            )
+            for e in rewind_entries
+        ]
+
+    async def rewind_to(self, entry_id: str) -> list[AgentMessage]:
+        if self.harness.is_running:
+            raise RuntimeError("Cannot rewind while agent is running")
+
+        # Bit fragile as we are rereading again
+        if self.last_parent_id is None:
+            return []
+
+        entries = await self.config.storage.read_all()
+
+        if not entries:
+            return []
+
+        rewind_entries = SessionState.get_rewind_entries(
+            entries,
+            self.last_parent_id,
+        )
+
+        target_entry = entries_by_id(rewind_entries).get(entry_id, None)
+
+        if target_entry is None:
+            raise ValueError(f"Unknown session entry: {entry_id}")
+
+        new_leaf_id = target_entry.parent_id
+
+        leaf = LeafEntry(
+            parent_id=new_leaf_id,
+            entry_id=new_leaf_id,
+        )
+
+        await self.config.storage.append(leaf)
+        self.last_parent_id = new_leaf_id
+
+        state = SessionState.from_entries(entries, leaf_id=new_leaf_id)
+        self.harness.replace_messages(state.messages)
+
+        return state.messages
 
     async def prompt(
         self,

@@ -56,3 +56,35 @@ class SessionState(BaseModel):
             session_info=session_info,
             active_leaf_id=leaf_id,
         )
+
+    @classmethod
+    def get_rewind_entries(
+        self,
+        entries: list[SessionEntry],
+        leaf_id: str,
+    ) -> list[MessageEntry]:
+        branch = branch_by_leaf_id(entries, leaf_id)
+
+        latest_compaction_index = None
+
+        for i in range(len(branch) - 1, -1, -1):
+            if isinstance(branch[i], CompactionEntry):
+                latest_compaction_index = i
+                break
+
+        # TODO: handling of retained tail messages when compaction is fragile
+        post_compaction_entries = (
+            branch[latest_compaction_index + 1 :]
+            if latest_compaction_index is not None
+            else branch
+        )
+
+        targets: list[MessageEntry] = []
+
+        for entry in post_compaction_entries:
+            if isinstance(entry, MessageEntry) and isinstance(
+                entry.message, UserMessage
+            ):
+                targets.append(entry)
+
+        return targets
