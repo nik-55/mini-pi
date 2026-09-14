@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from agent.messages import AgentMessage, UserMessage
 from agent.session.entries import (
@@ -10,38 +10,10 @@ from agent.session.entries import (
 from agent.session.tree import branch_by_leaf_id
 
 
-def _apply_compaction(
-    message_rows: list[tuple[str, AgentMessage]],
-    compaction_entry: CompactionEntry,
-) -> list[tuple[str, AgentMessage]]:
-    replaced_ids = set(compaction_entry.replaces_entry_ids)
-    retained: list[tuple[str, AgentMessage]] = []
-    summary_msg = UserMessage(
-        content=f"Previous conversation summary: \n{compaction_entry.summary}"
-    )
-
-    is_summary_inserted = False
-
-    for entry_id, message in message_rows:
-        if entry_id not in replaced_ids:
-            retained.append((entry_id, message))
-            continue
-
-        if not is_summary_inserted:
-            retained.append((compaction_entry.id, summary_msg))
-            is_summary_inserted = True
-
-    if not is_summary_inserted:
-        retained.append((compaction_entry.id, summary_msg))
-
-    return retained
-
-
 class SessionState(BaseModel):
     messages: list[AgentMessage]
     session_info: SessionInfoEntry | None = None
     active_leaf_id: str | None = None
-    context_entry_ids: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_entries(
@@ -51,23 +23,68 @@ class SessionState(BaseModel):
     ) -> "SessionState":
         branch = branch_by_leaf_id(entries, leaf_id) if leaf_id is not None else entries
 
-        message_rows: list[tuple[str, AgentMessage]] = []
+        messages: list[AgentMessage] = []
         session_info: SessionInfoEntry | None = None
+        latest_compaction_index: int | None = None
 
-        for entry in branch:
-            if isinstance(entry, MessageEntry):
-                message_rows.append((entry.id, entry.message))
-            elif isinstance(entry, CompactionEntry):
-                message_rows = _apply_compaction(message_rows, entry)
-            elif isinstance(entry, SessionInfoEntry):
+        # Traverse branch backwards
+        for i in range(len(branch) - 1, -1, -1):
+            entry = branch[i]
+
+            if isinstance(entry, SessionInfoEntry):
                 session_info = entry
+            elif isinstance(entry, CompactionEntry) and latest_compaction_index is None:
+                latest_compaction_index = i
 
-        messages = [msg for _, msg in message_rows]
-        context_entry_ids = [entry_id for entry_id, _ in message_rows]
+        if latest_compaction_index is not None:
+            compaction_entry: CompactionEntry = branch[latest_compaction_index]
+            summary_msg = UserMessage(
+                content=f"Previously conversation summary: \n{compaction_entry.summary}"
+            )
+            messages.append(summary_msg)
+            messages.extend(compaction_entry.retained_tail)
+            tail_entries = branch[latest_compaction_index + 1 :]
+        else:
+            tail_entries = branch
+
+        for entry in tail_entries:
+            if isinstance(entry, MessageEntry):
+                messages.append(entry.message)
 
         return cls(
             messages=messages,
             session_info=session_info,
             active_leaf_id=leaf_id,
-            context_entry_ids=context_entry_ids,
         )
+
+    @classmethod
+    def get_rewind_entries(
+        self,
+        entries: list[SessionEntry],
+        leaf_id: str,
+    ) -> list[MessageEntry]:
+        branch = branch_by_leaf_id(entries, leaf_id)
+
+        latest_compaction_index = None
+
+        for i in range(len(branch) - 1, -1, -1):
+            if isinstance(branch[i], CompactionEntry):
+                latest_compaction_index = i
+                break
+
+        # TODO: handling of retained tail messages when compaction is fragile
+        post_compaction_entries = (
+            branch[latest_compaction_index + 1 :]
+            if latest_compaction_index is not None
+            else branch
+        )
+
+        targets: list[MessageEntry] = []
+
+        for entry in post_compaction_entries:
+            if isinstance(entry, MessageEntry) and isinstance(
+                entry.message, UserMessage
+            ):
+                targets.append(entry)
+
+        return targets

@@ -125,6 +125,13 @@ async def main():
                 print_session_history(coding_session.harness.messages)
                 continue
 
+            if command_result.action.action == "compact":
+                instructions = command_result.action.args or None
+                print("\nCompacting conversation history...", flush=True)
+                msg = await coding_session.compact(custom_instructions=instructions)
+                print(f"\n{msg}\n", flush=True)
+                continue
+
         print("assistant> ", end="", flush=True)
 
         in_thinking = False

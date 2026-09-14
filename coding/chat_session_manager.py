@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,6 +11,34 @@ from coding.storage import JsonlSessionStorage
 class ChatSessionFileMetadata(BaseModel):
     updated_at: datetime
     id: str
+    title: str | None = None  # By default first user message
+
+
+# Since we need to show metadata for all jsonl files for list sessions we do need title
+# We will read mostly the first few lines to get the first user message
+# Currently we only have jsonl so we do need to read it to extract any other metadata
+# TODO: Study more on it
+def extract_first_user_message(file_path: Path):
+    try:
+        with file_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                if (
+                    record.get("type") == "message"
+                    and record.get("message", {}).get("role") == "user"
+                ):
+                    content = record["message"].get("content", None) or ""
+
+                    if content:
+                        return (" ".join(content.split())).strip()
+    except Exception:
+        pass
+
+    return
 
 
 class ChatSessionManager:
@@ -44,9 +73,20 @@ class ChatSessionManager:
 
         for file_path in self.session_dir.glob("*.jsonl"):
             stat = file_path.stat()
+            first_user_msg = extract_first_user_message(file_path)
+
+            title = None
+            if first_user_msg:
+                if len(first_user_msg) > 25:
+                    title = f"{first_user_msg[:25]}..."
+                else:
+                    title = first_user_msg
+
             session_rows.append(
                 ChatSessionFileMetadata(
-                    updated_at=datetime.fromtimestamp(stat.st_mtime), id=file_path.stem
+                    updated_at=datetime.fromtimestamp(stat.st_mtime),
+                    id=file_path.stem,
+                    title=title,
                 )
             )
 

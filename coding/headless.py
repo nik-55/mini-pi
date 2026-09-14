@@ -67,18 +67,25 @@ async def main():
 
         kind = rpc_client_msg.get("type", None)
 
-        if kind == "prompt":
+        if kind in ("prompt", "steer", "follow_up"):
+            text = rpc_client_msg.get("text", "")
+
             if is_running():
-                emit(
-                    {
-                        "type": "notice",
-                        "text": "Unsupported while agent is already running",
-                    }
-                )
+                streaming_behaviour = kind
+
+                async for _ in coding_session.prompt(
+                    text,
+                    streaming_behaviour=streaming_behaviour,
+                ):
+                    pass
+
                 continue
 
             loop_task = asyncio.create_task(
-                run_loop(coding_session, rpc_client_msg.get("text", ""))
+                run_loop(
+                    coding_session,
+                    text=text,
+                )
             )
         elif kind == "cancel":
             coding_session.cancel()
@@ -123,6 +130,36 @@ async def main():
                     ],
                 }
             )
+        elif kind == "get_rewind_targets":
+            targets = await coding_session.get_rewind_targets()
+            emit(
+                {
+                    "type": "rewind_targets",
+                    "targets": [t.model_dump(mode="json") for t in targets],
+                }
+            )
+        elif kind == "rewind":
+            if is_running():
+                emit({"type": "notice", "text": "Cancel the loop first"})
+                continue
+
+            entry_id = rpc_client_msg.get("entry_id", "")
+
+            try:
+                messages = await coding_session.rewind_to(entry_id)
+
+                if not messages:
+                    emit({"type": "notice", "text": "Nothing to rewind"})
+
+                emit(
+                    {
+                        "type": "session",
+                        "session_id": session_id,
+                        "messages": [m.model_dump(mode="json") for m in messages],
+                    }
+                )
+            except Exception as exc:
+                emit({"type": "notice", "text": f"Rewind is failed: {exc}"})
 
     if is_running():
         coding_session.cancel()

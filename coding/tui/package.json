@@ -8,7 +8,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=../tui_dist/mini-pi-tui.mjs"
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=../tui_dist/mini-pi-tui.mjs && cp -r src/assets ../tui_dist/"
   },
   "keywords": [],
   "author": "",

@@ -26,6 +26,8 @@ export function createAgentProcess() {
     return {
         send: send_msg_to_coding_agent,
         prompt: (text: string) => send_msg_to_coding_agent({ "type": "prompt", "text": text }),
+        steer: (text: string) => send_msg_to_coding_agent({ "type": "steer", "text": text }),
+        follow_up: (text: string) => send_msg_to_coding_agent({ "type": "follow_up", "text": text }),
         cancel: () => send_msg_to_coding_agent({ "type": "cancel" }),
         kill: () => coding_agent_process.kill(),
         onEvent: (handler: (event: AgentEvent) => void) => {
@@ -43,5 +45,7 @@ export function createAgentProcess() {
         },
         resume: (id: string) => send_msg_to_coding_agent({ "type": "resume", "id": id }),
         listSessions: () => send_msg_to_coding_agent({ "type": "list_sessions" }),
+        getRewindTargets: () => send_msg_to_coding_agent({ "type": "get_rewind_targets" }),
+        rewind: (entryId: string) => send_msg_to_coding_agent({ "type": "rewind", "entry_id": entryId }),
     }
 }

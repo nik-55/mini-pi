@@ -48,6 +48,11 @@ export interface AssistantErrorEvent {
     error: string;
 }
 
+export interface AssistantDoneEvent {
+    type: "AssistantDoneEvent",
+    message: Message,
+}
+
 export interface LoopEndEvent {
     type: "loop_end";
 }
@@ -56,6 +61,7 @@ export interface LoopEndEvent {
 export interface ListSessionRow {
     id: string;
     updated_at: string;
+    title?: string | null;
 }
 
 export interface ListSessionsEvent {
@@ -63,6 +69,15 @@ export interface ListSessionsEvent {
     rows: ListSessionRow[];
 }
 
+export interface RewindTargetRow {
+    entry_id: string;
+    text: string;
+}
+
+export interface RewindTargetsEvent {
+    type: "rewind_targets";
+    targets: RewindTargetRow[];
+}
 
 export type AgentEvent =
     | ReadyEvent
@@ -73,5 +88,7 @@ export type AgentEvent =
     | ToolExecutionStartEvent
     | ToolExecutionEndEvent
     | AssistantErrorEvent
+    | AssistantDoneEvent
     | LoopEndEvent
-    | ListSessionsEvent;
+    | ListSessionsEvent
+    | RewindTargetsEvent;

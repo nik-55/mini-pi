@@ -1,9 +1,12 @@
 import {
+    CombinedAutocompleteProvider,
     Editor,
     Key,
     matchesKey,
     ProcessTerminal,
     TuiMainScreen,
+    type SelectItem,
+    type SlashCommand,
 } from "@earendil-works/pi-tui";
 
 import {
@@ -16,15 +19,20 @@ import { createAgentProcess } from "./agent.js";
 import { Trajectory } from "./trajectory.js";
 import type { AgentEvent } from "./types/events.js";
 import { ActivityLoader } from "./loader.js";
+import { TUIHeader } from "./header.js";
+import { PickerComponent, type PickerOptions } from "./component.js";
 
 // UI Setup
 const terminal = new ProcessTerminal();
 const tui = new TuiMainScreen(terminal);
 
+tui.setClearOnShrink(true);
+
 const editor = new Editor(tui, editorTheme, {
     paddingX: 1
 });
 const trajectory = new Trajectory(() => tui.requestRender());
+const tuiHeader = new TUIHeader(() => tui.requestRender());
 const activityLoader = new ActivityLoader(tui, editor);
 
 // State
@@ -39,10 +47,48 @@ agent.onExit(() => {
     process.exit(0);
 })
 
-// Input Handling
-editor.onSubmit = (text: string) => {
+let activePicker: PickerComponent | null = null;
+
+function showPicker(options: PickerOptions): Promise<SelectItem | null> {
+    return new Promise((resolve) => {
+        if (activePicker) {
+            tui.removeChild(activePicker);
+            activePicker = null;
+        }
+
+        const picker = new PickerComponent(options);
+        activePicker = picker;
+
+        const closePicker = () => {
+            tui.removeChild(picker);
+            tui.addChild(editor);
+            tui.setFocus(editor);
+            activePicker = null;
+            tui.requestRender();
+        }
+
+        picker.onSelect = (item) => {
+            closePicker();
+            resolve(item);
+        }
+
+        picker.onCancel = () => {
+            closePicker();
+            resolve(null);
+        }
+
+        tui.removeChild(editor);
+        tui.addChild(picker);
+        tui.setFocus(picker);
+        tui.requestRender();
+    })
+}
+
+function submitInput(text: string, isFollowup: boolean = false) {
     text = text.trim();
     if (!text) return;
+
+    editor.addToHistory(text);
 
     editor.setText("");
 
@@ -52,7 +98,17 @@ editor.onSubmit = (text: string) => {
         process.exit(0);
     }
 
-    if (busy) return;
+    if (busy) {
+        if (isFollowup) {
+            trajectory.addText(`follow-up > ${text}`, cyan_color_wrapper);
+            agent.follow_up(text);
+        }
+        else {
+            trajectory.addText(`steer > ${text}`, cyan_color_wrapper);
+            agent.steer(text);
+        }
+        return;
+    }
 
     if (text == "/clear") {
         agent.send({ "type": "new_session" });
@@ -61,6 +117,11 @@ editor.onSubmit = (text: string) => {
 
     if (text == "/session") {
         trajectory.addText(`Active session: ${currentSessionId}`);
+        return;
+    }
+
+    if (text == "/rewind") {
+        agent.getRewindTargets();
         return;
     }
 
@@ -79,11 +140,26 @@ editor.onSubmit = (text: string) => {
     trajectory.addText(`> ${text}`, cyan_color_wrapper);
     agent.prompt(text);
     busy = true;
+}
+
+// Input Handling
+editor.onSubmit = (text: string) => {
+    return submitInput(text, false);
 };
 
+let lastEscTime = 0;
+const DOUBLE_ESC_TIMEOUT_MS = 400;
 
 tui.addInputListener((data: string) => {
-    if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.esc)) {
+    if (activePicker) {
+        if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.esc)) {
+            activePicker.onCancel?.();
+            return { consume: true }
+        }
+        return; // Picker will handle rest of key like navigate up / down
+    }
+
+    if (matchesKey(data, Key.ctrl("c"))) {
         if (busy) {
             agent.cancel();
             return { consume: true }; // Ctrl+c is being consumed, dont passes down
@@ -98,13 +174,42 @@ tui.addInputListener((data: string) => {
         trajectory.toggleAllCollapsibles();
         return { consume: true };
     }
+
+    else if (matchesKey(data, Key.alt("enter"))) {
+        const text = editor.getText().trim();
+        submitInput(text, true);
+        return { consume: true };
+    }
+
+    else if ((matchesKey(data, Key.esc))) {
+        if (busy) {
+            agent.cancel();
+            return { consume: true };
+        }
+
+        if (editor.isShowingAutocomplete()) {
+            return; // Editor will handle auto complete request
+        }
+
+        const now = Date.now();
+        if (now - lastEscTime <= DOUBLE_ESC_TIMEOUT_MS) {
+            editor.setText("");
+            lastEscTime = 0;
+        }
+        else {
+            lastEscTime = now;
+        }
+
+        return { consume: true };
+    }
 });
 
 // Agent Event Handler
 function handle_coding_agent_event(event: AgentEvent) {
     switch (event.type) {
         case "ready": {
-            trajectory.addText(`mini-pi (${event.model})`, dim_color_wrapper);
+            tuiHeader.currentModel = event.model;
+            tuiHeader.updateHeader();
             break;
         }
 
@@ -113,6 +218,12 @@ function handle_coding_agent_event(event: AgentEvent) {
 
             if (event.messages.length > 0) {
                 trajectory.loadMessages(event.messages);
+
+                for (const m of event.messages) {
+                    if (m.role == "user" && m.content) {
+                        editor.addToHistory(m.content);
+                    }
+                }
                 trajectory.addText(`Resumed ${currentSessionId} - ${event.messages.length} messages`, dim_color_wrapper);
             } else {
                 trajectory.clear();
@@ -153,6 +264,12 @@ function handle_coding_agent_event(event: AgentEvent) {
             break;
         }
 
+        case "AssistantDoneEvent": {
+            trajectory.finishThinking();
+            trajectory.currentAssistantMarkdownMsgComponent = null;
+            break;
+        }
+
         case "loop_end": {
             activityLoader.stop();
             trajectory.endLoop();
@@ -165,13 +282,57 @@ function handle_coding_agent_event(event: AgentEvent) {
                 trajectory.addText("No saved sessions", dim_color_wrapper);
             }
             else {
-                const lines = ["Saved Sessions:"];
-                for (const row of event.rows.slice(0, 15)) {
-                    lines.push(`    ${row.updated_at} ${row.id}`);
-                }
-                lines.push("use /resume <id> to switch");
-                trajectory.addText(lines.join("\n"), dim_color_wrapper);
+                const items: SelectItem[] = event.rows.map((row) => {
+                    const title = row.title || row.id;
+                    const label = row.id == currentSessionId ? `${title} (current)` : title;
+                    const formattedDate = row.updated_at.split(".")[0]?.replace("T", " ") as string;
+
+                    return {
+                        value: row.id,
+                        label: label,
+                        description: formattedDate,
+                    }
+                });
+
+                showPicker({
+                    title: 'Select session to resume:',
+                    items,
+                }).then((selected) => {
+                    if (selected) {
+                        agent.resume(selected.value);
+                    }
+                });
             }
+            break;
+        }
+
+        case "rewind_targets": {
+            if (event.targets.length == 0) {
+                trajectory.addText("No message to rewind to", dim_color_wrapper);
+            } else {
+                const items: SelectItem[] = event.targets.map((t) => {
+                    const text = t.text.trim() || "(empty message)";
+                    const truncated = text.length > 70 ? text.slice(0, 67) + "..." : text;
+                    return {
+                        value: t.entry_id,
+                        label: truncated,
+                        description: t.text,
+                    }
+                })
+
+                showPicker({
+                    title: "Select message to rewind to",
+                    items,
+                }).then((selected) => {
+                    if (selected) {
+                        editor.setText(selected.description ?? "(empty message)");
+                        tui.setFocus(editor);
+                        tui.requestRender();
+                        agent.rewind(selected.value);
+                    }
+                })
+            }
+
             break;
         }
     }
@@ -179,6 +340,28 @@ function handle_coding_agent_event(event: AgentEvent) {
 
 agent.onEvent(handle_coding_agent_event);
 
+const slashCommands: SlashCommand[] = [
+    {
+        name: "clear", description: "Clear conversation and start new session"
+    },
+    {
+        name: "session", description: "Show active session ID"
+    },
+    {
+        name: "resume", description: "Switch session",
+        argumentHint: "<id>"
+    },
+    { name: "exit", description: "Exit Mini-Pi" },
+    {
+        name: "rewind", description: "Rewind conversation to a previous user message"
+    },
+]
+
+editor.setAutocompleteProvider(
+    new CombinedAutocompleteProvider(slashCommands, process.cwd(), null)
+);
+
+tui.addChild(tuiHeader.headerContainer);
 tui.addChild(trajectory.trajectoryContainer);
 tui.addChild(editor);
 

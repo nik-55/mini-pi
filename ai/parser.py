@@ -1,3 +1,5 @@
+# Reference: https://github.com/openai/openai-python/blob/v3.13.0/src/openai/_streaming.py
+
 import json
 from typing import Any
 
@@ -63,6 +65,7 @@ class ChatStreamParser:
         self.content_parts: list[str] = []
         self.thinking_parts: list[str] = []
         self.tool_call_builders: dict[int, ToolCallBuilder] = {}
+        self.finish_reason: str | None = None
 
     def _first_choice(self, chunk: dict) -> dict | None:
         choices = chunk.get("choices", None)
@@ -78,10 +81,25 @@ class ChatStreamParser:
         return choice
 
     def feed(self, chunk: dict) -> list[AgentEvent]:
+        # In stream error payloads
+        if "error" in chunk and chunk["error"]:
+            err = chunk["error"]
+            msg = None
+            if isinstance(err, dict):
+                msg = err.get("message")
+
+            msg = msg or str(err) or "Unknown error"
+
+            raise RuntimeError(f"Stream error: {msg}")
+
         choice = self._first_choice(chunk)
 
         if choice is None:
             return []
+
+        finish_reason = choice.get("finish_reason")
+        if finish_reason:
+            self.finish_reason = finish_reason
 
         delta = choice.get("delta", None)
 
@@ -117,6 +135,15 @@ class ChatStreamParser:
         return events
 
     def finalize(self) -> AssistantDoneEvent:
+        if self.finish_reason is None:
+            raise RuntimeError("Stream ended without finish_reason")
+
+        if self.finish_reason == "content_filter":
+            raise RuntimeError("Provider finish_reason: content_filter")
+
+        if self.finish_reason not in ("stop", "tool_calls", "length"):
+            raise RuntimeError(f"Provider finish_reason: {self.finish_reason}")
+
         tool_calls: list[ToolCall] = [
             builder.build(index)
             for index, builder in sorted(
@@ -132,5 +159,6 @@ class ChatStreamParser:
                 content=content,
                 thinking=thinking,
                 tool_calls=tool_calls,
+                stop_reason=self.finish_reason,
             )
         )

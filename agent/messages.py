@@ -26,6 +26,7 @@ class AssistantMessage(BaseModel):
     content: str = ""
     tool_calls: list[ToolCall] = []
     thinking: str = ""
+    stop_reason: str | None = None
 
 
 class ToolResultMessage(BaseModel):

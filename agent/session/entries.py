@@ -47,7 +47,7 @@ class LeafEntry(BaseSessionEntry):
 class CompactionEntry(BaseSessionEntry):
     type: Literal[SessionType.COMPACTION] = SessionType.COMPACTION
     summary: str
-    replaces_entry_ids: list[str] = Field(default_factory=list)
+    retained_tail: list[AgentMessage] = Field(default_factory=list)
 
 
 SessionEntry = Annotated[

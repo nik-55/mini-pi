@@ -1,11 +1,15 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from typing import Literal
+
+from pydantic import BaseModel
 
 from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
-from agent.messages import AgentMessage
+from agent.messages import AgentMessage, UserMessage
 from agent.provider import ModelProvider
 from agent.session.entries import (
+    CompactionEntry,
     LeafEntry,
     MessageEntry,
     SessionEntry,
@@ -13,7 +17,9 @@ from agent.session.entries import (
 )
 from agent.session.state import SessionState
 from agent.session.storage import SessionStorage
+from agent.session.tree import entries_by_id
 from agent.tools import AgentTool
+from coding.compaction import find_compaction_cut, generate_compaction_summary
 from coding.extensions.api import InputHookResult
 from coding.extensions.runtime import ExtensionRuntime
 from coding.tokens import estimate_context_tokens
@@ -37,6 +43,11 @@ def _latest_leaf_entry(entries: list[SessionEntry]) -> LeafEntry | None:
             return entry
 
     return
+
+
+class RewindTarget(BaseModel):
+    entry_id: str
+    text: str
 
 
 class CodingSession:
@@ -133,7 +144,75 @@ class CodingSession:
         )
         await self.config.storage.append(leaf)
 
-    async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
+    async def get_rewind_targets(self) -> list[RewindTarget]:
+        if self.last_parent_id is None:
+            return []
+
+        # For now since AgentMessage dont carry entry ids
+        # and also compaction message is stored as User Message in
+        # self.harness.messages, we are reading entries again from storage
+
+        entries = await self.config.storage.read_all()
+
+        if not entries:
+            return []
+
+        rewind_entries = SessionState.get_rewind_entries(
+            entries,
+            self.last_parent_id,
+        )
+
+        return [
+            RewindTarget(
+                entry_id=e.id,
+                text=e.message.content,
+            )
+            for e in reversed(rewind_entries)
+        ]
+
+    async def rewind_to(self, entry_id: str) -> list[AgentMessage]:
+        if self.harness.is_running:
+            raise RuntimeError("Cannot rewind while agent is running")
+
+        # Bit fragile as we are rereading again
+        if self.last_parent_id is None:
+            return []
+
+        entries = await self.config.storage.read_all()
+
+        if not entries:
+            return []
+
+        rewind_entries = SessionState.get_rewind_entries(
+            entries,
+            self.last_parent_id,
+        )
+
+        target_entry = entries_by_id(rewind_entries).get(entry_id, None)
+
+        if target_entry is None:
+            raise ValueError(f"Unknown session entry: {entry_id}")
+
+        new_leaf_id = target_entry.parent_id
+
+        leaf = LeafEntry(
+            parent_id=new_leaf_id,
+            entry_id=new_leaf_id,
+        )
+
+        await self.config.storage.append(leaf)
+        self.last_parent_id = new_leaf_id
+
+        state = SessionState.from_entries(entries, leaf_id=new_leaf_id)
+        self.harness.replace_messages(state.messages)
+
+        return state.messages
+
+    async def prompt(
+        self,
+        content: str,
+        streaming_behaviour: Literal["steer", "follow_up"] | None = None,
+    ) -> AsyncIterator[AgentEvent]:
         effective_content = content
 
         if self.config.extension_runtime is not None:
@@ -151,14 +230,67 @@ class CodingSession:
             ):
                 effective_content = input_result_hook.text
 
+        if self.harness.is_running:
+            streaming_behaviour = streaming_behaviour or "steer"
+
+            if streaming_behaviour == "steer":
+                self.harness.msg_queue_when_running.steer(effective_content)
+            elif streaming_behaviour == "follow_up":
+                self.harness.msg_queue_when_running.follow_up(effective_content)
+
+            return
+
         if self.should_auto_compact():
             print(
                 f"\n[Auto compaction triggered: context exceeded {self.config.auto_compact_threshold} tokens]\n",
                 flush=True,
             )
+            await self.compact()
 
         async for event in self.harness.prompt(effective_content):
             yield event
+
+    async def compact(self, custom_instructions: str | None = None) -> str:
+        cut = find_compaction_cut(self.harness.messages)
+
+        if cut is None:
+            return "Not enough context to compact"
+
+        messages_to_summarize = self.harness.messages[:cut]
+        retained_tail = self.harness.messages[cut:]
+
+        summary = await generate_compaction_summary(
+            provider=self.config.provider,
+            model=self.config.model,
+            messages_to_summarize=messages_to_summarize,
+            custom_instructions=custom_instructions,
+        )
+
+        if self.pending_initial_entry is not None:
+            await self.config.storage.append(self.pending_initial_entry)
+            self.pending_initial_entry = None
+
+        compaction_entry = CompactionEntry(
+            parent_id=self.last_parent_id,
+            summary=summary,
+            retained_tail=retained_tail,
+        )
+
+        await self.config.storage.append(compaction_entry)
+        self.last_parent_id = compaction_entry.id
+
+        leaf = LeafEntry(
+            parent_id=self.last_parent_id,
+            entry_id=self.last_parent_id,
+        )
+        await self.config.storage.append(leaf)
+
+        summary_msg = UserMessage(
+            content=f"Previously conversation summary: \n{summary}"
+        )
+        self.harness.replace_messages([summary_msg, *retained_tail])
+
+        return f"Compacted {len(messages_to_summarize)} messages"
 
     def cancel(self):
         self.harness.cancel()
