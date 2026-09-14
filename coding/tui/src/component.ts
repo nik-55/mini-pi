@@ -1,14 +1,19 @@
 import {
     Container,
     Markdown,
+    SelectList,
+    Spacer,
     Text,
     TruncatedText,
+    type SelectItem,
 } from "@earendil-works/pi-tui";
 
 import {
     mdTheme,
     dim_color_wrapper,
     type Colorfn,
+    editorSelectListTheme,
+    cyan_color_wrapper,
 } from './theme.js';
 
 class MarkdownMsgComponent extends Container {
@@ -78,6 +83,53 @@ class CollapsibleComponent extends Container {
 }
 
 
+export interface PickerOptions {
+    title: string;
+    items: SelectItem[];
+    hint?: string;
+    maxVisible?: number;
+};
+
+class PickerComponent extends Container {
+    private selectList: SelectList;
+    public onSelect?: (item: SelectItem) => void;
+    public onCancel?: () => void;
+
+
+    constructor(options: PickerOptions) {
+        super();
+
+
+        this.selectList = new SelectList(
+            options.items,
+            options.maxVisible ?? Math.min(options.items.length, 8),
+            editorSelectListTheme
+        );
+
+        this.selectList.onSelect = (item: SelectItem) => {
+            this.onSelect?.(item);
+        };
+
+        this.selectList.onCancel = () => {
+            this.onCancel?.();
+        };
+
+        this.addChild(new Text(cyan_color_wrapper(options.title), 1, 0));
+        this.addChild(this.selectList);
+
+        const hint = options.hint ?? "(↑/↓ to navigate, Enter to select, Esc to cancel)";
+        this.addChild(new Text(dim_color_wrapper(hint), 1, 0));
+        this.addChild(new Spacer(1));
+    }
+
+    public handleInput(data: string) {
+        this.selectList.handleInput(data);
+    }
+}
+
+
 export {
-    MarkdownMsgComponent, CollapsibleComponent
+    MarkdownMsgComponent,
+    CollapsibleComponent,
+    PickerComponent,
 };

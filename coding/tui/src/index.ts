@@ -1,9 +1,12 @@
 import {
+    CombinedAutocompleteProvider,
     Editor,
     Key,
     matchesKey,
     ProcessTerminal,
     TuiMainScreen,
+    type SelectItem,
+    type SlashCommand,
 } from "@earendil-works/pi-tui";
 
 import {
@@ -17,10 +20,13 @@ import { Trajectory } from "./trajectory.js";
 import type { AgentEvent } from "./types/events.js";
 import { ActivityLoader } from "./loader.js";
 import { TUIHeader } from "./header.js";
+import { PickerComponent, type PickerOptions } from "./component.js";
 
 // UI Setup
 const terminal = new ProcessTerminal();
 const tui = new TuiMainScreen(terminal);
+
+tui.setClearOnShrink(true);
 
 const editor = new Editor(tui, editorTheme, {
     paddingX: 1
@@ -40,6 +46,43 @@ agent.onExit(() => {
     tui.stop();
     process.exit(0);
 })
+
+let activePicker: PickerComponent | null = null;
+
+function showPicker(options: PickerOptions): Promise<SelectItem | null> {
+    return new Promise((resolve) => {
+        if (activePicker) {
+            tui.removeChild(activePicker);
+            activePicker = null;
+        }
+
+        const picker = new PickerComponent(options);
+        activePicker = picker;
+
+        const closePicker = () => {
+            tui.removeChild(picker);
+            tui.addChild(editor);
+            tui.setFocus(editor);
+            activePicker = null;
+            tui.requestRender();
+        }
+
+        picker.onSelect = (item) => {
+            closePicker();
+            resolve(item);
+        }
+
+        picker.onCancel = () => {
+            closePicker();
+            resolve(null);
+        }
+
+        tui.removeChild(editor);
+        tui.addChild(picker);
+        tui.setFocus(picker);
+        tui.requestRender();
+    })
+}
 
 function submitInput(text: string, isFollowup: boolean = false) {
     text = text.trim();
@@ -103,6 +146,14 @@ let lastEscTime = 0;
 const DOUBLE_ESC_TIMEOUT_MS = 400;
 
 tui.addInputListener((data: string) => {
+    if (activePicker) {
+        if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.esc)) {
+            activePicker.onCancel?.();
+            return { consume: true }
+        }
+        return; // Picker will handle rest of key like navigate up / down
+    }
+
     if (matchesKey(data, Key.ctrl("c"))) {
         if (busy) {
             agent.cancel();
@@ -227,12 +278,26 @@ function handle_coding_agent_event(event: AgentEvent) {
                 trajectory.addText("No saved sessions", dim_color_wrapper);
             }
             else {
-                const lines = ["Saved Sessions:"];
-                for (const row of event.rows.slice(0, 15)) {
-                    lines.push(`    ${row.updated_at} ${row.id}`);
-                }
-                lines.push("use /resume <id> to switch");
-                trajectory.addText(lines.join("\n"), dim_color_wrapper);
+                const items: SelectItem[] = event.rows.map((row) => {
+                    const title = row.title || row.id;
+                    const label = row.id == currentSessionId ? `${title} (current)` : title;
+                    const formattedDate = row.updated_at.split(".")[0]?.replace("T", " ") as string;
+
+                    return {
+                        value: row.id,
+                        label: label,
+                        description: formattedDate,
+                    }
+                });
+
+                showPicker({
+                    title: 'Select session to resume:',
+                    items,
+                }).then((selected) => {
+                    if (selected) {
+                        agent.resume(selected.value);
+                    }
+                });
             }
             break;
         }
@@ -241,6 +306,24 @@ function handle_coding_agent_event(event: AgentEvent) {
 }
 
 agent.onEvent(handle_coding_agent_event);
+
+const slashCommands: SlashCommand[] = [
+    {
+        name: "clear", description: "Clear conversation and start new session"
+    },
+    {
+        name: "session", description: "Show active session ID"
+    },
+    {
+        name: "resume", description: "Switch session",
+        argumentHint: "<id>"
+    },
+    { name: "exit", description: "Exit Mini-Pi" },
+]
+
+editor.setAutocompleteProvider(
+    new CombinedAutocompleteProvider(slashCommands, process.cwd(), null)
+);
 
 tui.addChild(tuiHeader.headerContainer);
 tui.addChild(trajectory.trajectoryContainer);

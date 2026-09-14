@@ -31,7 +31,7 @@ export class TUIHeader {
 
     public updateHeader() {
         this.headerContainer.clear();
-        const logoText = new Text(cyan_color_wrapper(this.logo), 0, 0);
+        const logoText = new Text(cyan_color_wrapper(this.logo), 1, 0);
 
         const info: string[] = [this.version_str];
 

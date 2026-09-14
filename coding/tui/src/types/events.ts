@@ -61,6 +61,7 @@ export interface LoopEndEvent {
 export interface ListSessionRow {
     id: string;
     updated_at: string;
+    title?: string | null;
 }
 
 export interface ListSessionsEvent {
