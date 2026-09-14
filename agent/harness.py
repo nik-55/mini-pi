@@ -9,6 +9,7 @@ from agent.loop import run_agent_loop
 from agent.messages import AgentMessage, UserMessage
 from agent.provider import ModelProvider
 from agent.queue import MessageQueueHandler
+from agent.tool_repair import get_tool_result_repairs
 from agent.tools import AgentTool
 
 
@@ -65,6 +66,17 @@ class AgentHarness:
             raise RuntimeError(
                 "Agent is already running, use msg_queue_when_running to queue messages"
             )
+
+        # Repair any dangling tool calls before user prompt send to llm
+        # TODO: This seem incorrect that we are yielding event when repairing
+        # What can be proper way to do require study
+        repairs = get_tool_result_repairs(self.messages)
+
+        for r in repairs:
+            self.append_message(r)
+            event = MessageEndEvent(message=r)
+            await self._notify(event)
+            yield event
 
         user_message = UserMessage(content=content)
         self.append_message(message=user_message)

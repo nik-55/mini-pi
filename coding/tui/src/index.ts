@@ -267,7 +267,6 @@ function handle_coding_agent_event(event: AgentEvent) {
         case "AssistantDoneEvent": {
             trajectory.finishThinking();
             trajectory.currentAssistantMarkdownMsgComponent = null;
-            trajectory.addSpacer(1);
             break;
         }
 
