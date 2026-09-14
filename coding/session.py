@@ -167,7 +167,7 @@ class CodingSession:
                 entry_id=e.id,
                 text=e.message.content,
             )
-            for e in rewind_entries
+            for e in reversed(rewind_entries)
         ]
 
     async def rewind_to(self, entry_id: str) -> list[AgentMessage]:

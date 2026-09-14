@@ -90,6 +90,8 @@ async def run_agent_loop(
                 True if len(assistant_message.tool_calls) == 0 else False
             )
 
+            is_truncated = assistant_message.stop_reason == "length"
+
             for tool_call in assistant_message.tool_calls:
                 if signal is not None and signal.is_cancelled():
                     return
@@ -100,18 +102,27 @@ async def run_agent_loop(
                     arguments=tool_call.arguments,
                 )
 
-                tool = tool_map.get(tool_call.name)
-
-                if tool is None:
-                    content = f"Error: tool '{tool_call.name}' not found"
+                if is_truncated:
+                    content = (
+                        f"Tool call '{tool_call.name}' was not executed: the response hit the output token limit, "
+                        "so its arguments may be truncated. Re-issue the tool call with complete arguments."
+                    )
                     is_error = True
                 else:
-                    try:
-                        content = await tool.execute(tool_call.arguments, signal=signal)
-                        is_error = False
-                    except Exception as exc:
-                        content = f"Error executing tool '{tool_call.name}': {exc}"
+                    tool = tool_map.get(tool_call.name)
+
+                    if tool is None:
+                        content = f"Error: tool '{tool_call.name}' not found"
                         is_error = True
+                    else:
+                        try:
+                            content = await tool.execute(
+                                tool_call.arguments, signal=signal
+                            )
+                            is_error = False
+                        except Exception as exc:
+                            content = f"Error executing tool '{tool_call.name}': {exc}"
+                            is_error = True
 
                 tool_result_message = ToolResultMessage(
                     tool_call_id=tool_call.id,
