@@ -3,7 +3,6 @@ from collections.abc import AsyncIterator, Callable
 from agent.cancellation import CancellationSignal
 from agent.events import (
     AssistantDoneEvent,
-    AssistantErrorEvent,
     AgentEvent,
     MessageEndEvent,
     TextDeltaEvent,
@@ -19,6 +18,7 @@ from agent.messages import (
 )
 from agent.provider import ModelProvider
 from agent.tools import AgentTool
+from agent.validation import validate_tool_arguments
 
 
 async def run_agent_loop(
@@ -27,10 +27,11 @@ async def run_agent_loop(
     system: str,
     messages: list[AgentMessage],
     tools: list[AgentTool],
-    max_turns: int = 40,
     signal: CancellationSignal | None = None,
     get_steering_messages: Callable[[], tuple[UserMessage, ...]] = None,
     get_followup_messages: Callable[[], tuple[UserMessage, ...]] = None,
+    # Deliberately set to large number so agent can run for long but limit for how long till we have proper testing
+    max_turns: int = 1000,
 ) -> AsyncIterator[AgentEvent]:
     tool_map = {t.name: t for t in tools}
 
@@ -41,13 +42,23 @@ async def run_agent_loop(
         turn = 0
 
         while (not is_assistant_done) or len(pending_queued_messages) > 0:
-            if turn >= max_turns:
+            if turn >= max_turns or (signal is not None and signal.is_cancelled()):
+                assistant_message = AssistantMessage(
+                    stop_reason="aborted",
+                    error_message=(
+                        "Operation cancelled"
+                        if turn < max_turns
+                        else "Max turn reached"
+                    ),
+                )
+                messages.append(assistant_message)
+                yield AssistantDoneEvent(
+                    message=assistant_message,
+                )
+                yield MessageEndEvent(message=assistant_message)
                 return
 
             turn += 1
-
-            if signal is not None and signal.is_cancelled():
-                return
 
             for msg in pending_queued_messages:
                 messages.append(msg)
@@ -62,11 +73,19 @@ async def run_agent_loop(
                 system=system,
                 messages=messages,
                 tools=tools,
+                signal=signal,
             )
 
             async for event in stream:
                 if signal is not None and signal.is_cancelled():
-                    return
+                    assistant_message = AssistantMessage(
+                        stop_reason="aborted",
+                        error_message="Operation cancelled",
+                    )
+                    yield AssistantDoneEvent(
+                        message=assistant_message,
+                    )
+                    break
 
                 if isinstance(event, TextDeltaEvent):
                     yield event
@@ -75,16 +94,21 @@ async def run_agent_loop(
                 elif isinstance(event, AssistantDoneEvent):
                     assistant_message = event.message
                     yield event
-                elif isinstance(event, AssistantErrorEvent):
-                    yield event
-                    return
 
             if assistant_message is None:
-                yield AssistantErrorEvent(error="No assistant message received")
-                return
+                assistant_message = AssistantMessage(
+                    stop_reason="error",
+                    error_message="No assistant message received",
+                )
+                yield AssistantDoneEvent(
+                    message=assistant_message,
+                )
 
             messages.append(assistant_message)
             yield MessageEndEvent(message=assistant_message)
+
+            if assistant_message.stop_reason in ("error", "aborted"):
+                return
 
             is_assistant_done = (
                 True if len(assistant_message.tool_calls) == 0 else False
@@ -93,16 +117,16 @@ async def run_agent_loop(
             is_truncated = assistant_message.stop_reason == "length"
 
             for tool_call in assistant_message.tool_calls:
-                if signal is not None and signal.is_cancelled():
-                    return
-
                 yield ToolExecutionStartEvent(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.name,
                     arguments=tool_call.arguments,
                 )
 
-                if is_truncated:
+                if signal is not None and signal.is_cancelled():
+                    content = "Operation cancelled"
+                    is_error = True
+                elif is_truncated:
                     content = (
                         f"Tool call '{tool_call.name}' was not executed: the response hit the output token limit, "
                         "so its arguments may be truncated. Re-issue the tool call with complete arguments."
@@ -116,18 +140,22 @@ async def run_agent_loop(
                         is_error = True
                     else:
                         try:
+                            validate_tool_arguments(
+                                tool.parameters,
+                                tool_call.arguments,
+                            )
                             content = await tool.execute(
                                 tool_call.arguments, signal=signal
                             )
                             is_error = False
-                        except Exception as exc:
+                        except (Exception,) as exc:
                             content = f"Error executing tool '{tool_call.name}': {exc}"
                             is_error = True
 
                 tool_result_message = ToolResultMessage(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.name,
-                    content=content[:10_000],
+                    content=content,
                     is_error=is_error,
                 )
 

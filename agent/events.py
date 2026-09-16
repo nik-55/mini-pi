@@ -16,7 +16,7 @@ class ThinkingDeltaEvent(BaseModel):
 class AssistantDoneEvent(BaseModel):
     message: AssistantMessage
 
-
+# TODO: To be removed
 class AssistantErrorEvent(BaseModel):
     error: str
 

@@ -9,6 +9,7 @@ from agent.messages import (
     UserMessage,
 )
 from agent.tools import AgentTool
+from ai.transform import transform_messages
 
 # OpenAI represent Chat completion API /v1/chat/completions
 
@@ -70,6 +71,7 @@ def build_chat_payload(
     messages: list[AgentMessage],
     tools: list[AgentTool],
 ) -> dict[str, Any]:
+    messages = transform_messages(messages)
     payload = {
         "messages": [{"role": "system", "content": system}]
         + [message_to_openai(m) for m in messages],

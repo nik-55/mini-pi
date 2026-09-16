@@ -4,7 +4,8 @@ import json
 
 import httpx
 
-from agent.events import AssistantErrorEvent, AgentEvent
+from agent.cancellation import CancellationSignal
+from agent.events import AgentEvent, AssistantDoneEvent
 from agent.messages import AgentMessage
 from agent.provider import ModelProvider
 from agent.tools import AgentTool
@@ -32,6 +33,7 @@ class OpenAIProvider(ModelProvider):
         system: str,
         messages: list[AgentMessage],
         tools: list[AgentTool],
+        signal: CancellationSignal | None = None,
     ) -> AsyncIterator[AgentEvent]:
         payload = build_chat_payload(model, system, messages, tools)
 
@@ -42,6 +44,15 @@ class OpenAIProvider(ModelProvider):
             while True:
                 has_yielded_event = False
                 parser = ChatStreamParser()
+
+                if signal is not None and signal.is_cancelled():
+                    yield AssistantDoneEvent(
+                        message=parser.build_assistant_message(
+                            stop_reason="aborted",
+                        )
+                    )
+
+                    return
 
                 try:
                     async with httpx.AsyncClient(
@@ -68,8 +79,11 @@ class OpenAIProvider(ModelProvider):
                                             response_headers=response_headers,
                                         )
                                     except ValueError as verr:
-                                        yield AssistantErrorEvent(
-                                            error=f"{body_text} ({verr})"
+                                        yield AssistantDoneEvent(
+                                            message=parser.build_assistant_message(
+                                                stop_reason="error",
+                                                error_message=f"{body_text} ({verr})",
+                                            )
                                         )
                                         return
 
@@ -77,10 +91,24 @@ class OpenAIProvider(ModelProvider):
                                     await asyncio.sleep(delay)
                                     continue
 
-                                yield AssistantErrorEvent(error=body_text)
+                                yield AssistantDoneEvent(
+                                    message=parser.build_assistant_message(
+                                        stop_reason="error",
+                                        error_message=body_text,
+                                    )
+                                )
                                 return
 
                             async for line in response.aiter_lines():
+                                if signal is not None and signal.is_cancelled():
+                                    yield AssistantDoneEvent(
+                                        message=parser.build_assistant_message(
+                                            stop_reason="aborted",
+                                        )
+                                    )
+
+                                    return
+
                                 data = self._parse_sse_line(line)
 
                                 if data is None:
@@ -109,14 +137,24 @@ class OpenAIProvider(ModelProvider):
                                 attempt=attempt,
                             )
                         except ValueError as verr:
-                            yield AssistantErrorEvent(error=f"{err} ({verr})")
+                            yield AssistantDoneEvent(
+                                message=parser.build_assistant_message(
+                                    stop_reason="error",
+                                    error_message=f"{err} ({verr})",
+                                )
+                            )
                             return
 
                         attempt += 1
                         await asyncio.sleep(delay)
                         continue
 
-                    yield AssistantErrorEvent(error=str(err))
+                    yield AssistantDoneEvent(
+                        message=parser.build_assistant_message(
+                            stop_reason="error",
+                            error_message=str(err),
+                        )
+                    )
                     return
 
         return _run()

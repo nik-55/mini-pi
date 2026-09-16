@@ -21,12 +21,16 @@ class UserMessage(BaseModel):
     content: str
 
 
+StopReason = Literal["stop", "length", "tool_use", "error", "aborted"]
+
+
 class AssistantMessage(BaseModel):
     role: Literal[MessageType.ASSISTANT] = MessageType.ASSISTANT
     content: str = ""
     tool_calls: list[ToolCall] = []
     thinking: str = ""
-    stop_reason: str | None = None
+    stop_reason: StopReason | None = None
+    error_message: str | None = None
 
 
 class ToolResultMessage(BaseModel):

@@ -1,7 +1,3 @@
-# TODO:
-# Assumption Agent layer does not validate type
-# But here I am assuming that parameter type is validated at agent layer
-
 import asyncio
 import os
 from pathlib import Path

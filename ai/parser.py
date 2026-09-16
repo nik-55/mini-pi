@@ -9,7 +9,7 @@ from agent.events import (
     TextDeltaEvent,
     ThinkingDeltaEvent,
 )
-from agent.messages import AssistantMessage, ToolCall
+from agent.messages import AssistantMessage, StopReason, ToolCall
 
 
 def _str_to_dict(text: str) -> dict | None:
@@ -80,6 +80,37 @@ class ChatStreamParser:
 
         return choice
 
+    def build_assistant_message(
+        self,
+        stop_reason: StopReason | None = None,
+        error_message: str | None = None,
+    ) -> AssistantMessage:
+        tool_calls: list[ToolCall] = [
+            builder.build(index)
+            for index, builder in sorted(
+                self.tool_call_builders.items(), key=lambda x: x[0]
+            )
+        ]
+
+        thinking = "".join(self.thinking_parts) or ""
+        content = "".join(self.content_parts) or ""
+
+        return AssistantMessage(
+            content=content,
+            thinking=thinking,
+            tool_calls=tool_calls,
+            stop_reason=stop_reason,
+            error_message=error_message,
+        )
+
+    def _map_finish_reason_to_stop_reason(
+        self, finish_reason: str | None
+    ) -> StopReason:
+        if finish_reason == "tool_calls":
+            return "tool_use"
+
+        return finish_reason
+
     def feed(self, chunk: dict) -> list[AgentEvent]:
         # In stream error payloads
         if "error" in chunk and chunk["error"]:
@@ -144,21 +175,13 @@ class ChatStreamParser:
         if self.finish_reason not in ("stop", "tool_calls", "length"):
             raise RuntimeError(f"Provider finish_reason: {self.finish_reason}")
 
-        tool_calls: list[ToolCall] = [
-            builder.build(index)
-            for index, builder in sorted(
-                self.tool_call_builders.items(), key=lambda x: x[0]
-            )
-        ]
+        stop_reason = self._map_finish_reason_to_stop_reason(self.finish_reason)
 
-        thinking = "".join(self.thinking_parts) or ""
-        content = "".join(self.content_parts) or ""
+        assistant_msg = self.build_assistant_message(
+            stop_reason,
+            error_message=None,
+        )
 
         return AssistantDoneEvent(
-            message=AssistantMessage(
-                content=content,
-                thinking=thinking,
-                tool_calls=tool_calls,
-                stop_reason=self.finish_reason,
-            )
+            message=assistant_msg,
         )
