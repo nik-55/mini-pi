@@ -5,7 +5,7 @@ import json
 import httpx
 
 from agent.cancellation import CancellationSignal
-from agent.events import AgentEvent, AssistantDoneEvent
+from agent.events import AgentEvent, DoneEvent
 from agent.messages import AgentMessage
 from agent.provider import ModelProvider
 from agent.tools import AgentTool
@@ -46,7 +46,7 @@ class OpenAIProvider(ModelProvider):
                 parser = ChatStreamParser()
 
                 if signal is not None and signal.is_cancelled():
-                    yield AssistantDoneEvent(
+                    yield DoneEvent(
                         message=parser.build_assistant_message(
                             stop_reason="aborted",
                         )
@@ -79,7 +79,7 @@ class OpenAIProvider(ModelProvider):
                                             response_headers=response_headers,
                                         )
                                     except ValueError as verr:
-                                        yield AssistantDoneEvent(
+                                        yield DoneEvent(
                                             message=parser.build_assistant_message(
                                                 stop_reason="error",
                                                 error_message=f"{body_text} ({verr})",
@@ -91,7 +91,7 @@ class OpenAIProvider(ModelProvider):
                                     await asyncio.sleep(delay)
                                     continue
 
-                                yield AssistantDoneEvent(
+                                yield DoneEvent(
                                     message=parser.build_assistant_message(
                                         stop_reason="error",
                                         error_message=body_text,
@@ -101,7 +101,7 @@ class OpenAIProvider(ModelProvider):
 
                             async for line in response.aiter_lines():
                                 if signal is not None and signal.is_cancelled():
-                                    yield AssistantDoneEvent(
+                                    yield DoneEvent(
                                         message=parser.build_assistant_message(
                                             stop_reason="aborted",
                                         )
@@ -137,7 +137,7 @@ class OpenAIProvider(ModelProvider):
                                 attempt=attempt,
                             )
                         except ValueError as verr:
-                            yield AssistantDoneEvent(
+                            yield DoneEvent(
                                 message=parser.build_assistant_message(
                                     stop_reason="error",
                                     error_message=f"{err} ({verr})",
@@ -149,7 +149,7 @@ class OpenAIProvider(ModelProvider):
                         await asyncio.sleep(delay)
                         continue
 
-                    yield AssistantDoneEvent(
+                    yield DoneEvent(
                         message=parser.build_assistant_message(
                             stop_reason="error",
                             error_message=str(err),

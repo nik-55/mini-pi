@@ -4,7 +4,13 @@ import inspect
 from typing import Any, Optional
 
 from agent.cancellation import CancellationSignal
-from agent.events import AgentEvent, AssistantDoneEvent, MessageEndEvent
+from agent.events import (
+    AgentEndEvent,
+    AgentEvent,
+    MessageEndEvent,
+    MessageStartEvent,
+    TurnEndEvent,
+)
 from agent.loop import run_agent_loop
 from agent.messages import AgentMessage, AssistantMessage, UserMessage
 from agent.provider import ModelProvider
@@ -68,9 +74,14 @@ class AgentHarness:
 
         user_message = UserMessage(content=content)
         self.append_message(message=user_message)
-        event = MessageEndEvent(message=user_message)
-        await self._notify(event)
-        yield event
+
+        start_event = MessageStartEvent(message=user_message)
+        await self._notify(start_event)
+        yield start_event
+
+        end_event = MessageEndEvent(message=user_message)
+        await self._notify(end_event)
+        yield end_event
 
         async for event in self._continue():
             yield event
@@ -106,12 +117,15 @@ class AgentHarness:
                     error_message=str(err),
                 )
                 self.append_message(failure_message)
-                done_event = AssistantDoneEvent(message=failure_message)
-                end_event = MessageEndEvent(message=failure_message)
-                await self._notify(done_event)
-                yield done_event
-                await self._notify(end_event)
-                yield end_event
+
+                for ev in (
+                    MessageStartEvent(message=failure_message),
+                    MessageEndEvent(message=failure_message),
+                    TurnEndEvent(message=failure_message, tool_results=[]),
+                    AgentEndEvent(messages=[failure_message]),
+                ):
+                    await self._notify(ev)
+                    yield ev
         finally:
             if self._cancellation_signal is signal:
                 self._cancellation_signal = None

@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from agent.events import (
-    AssistantDoneEvent,
+    DoneEvent,
     AgentEvent,
     TextDeltaEvent,
     ThinkingDeltaEvent,
@@ -165,7 +165,7 @@ class ChatStreamParser:
 
         return events
 
-    def finalize(self) -> AssistantDoneEvent:
+    def finalize(self) -> DoneEvent:
         if self.finish_reason is None:
             raise RuntimeError("Stream ended without finish_reason")
 
@@ -182,6 +182,6 @@ class ChatStreamParser:
             error_message=None,
         )
 
-        return AssistantDoneEvent(
+        return DoneEvent(
             message=assistant_msg,
         )
