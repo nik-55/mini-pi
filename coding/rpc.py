@@ -7,14 +7,21 @@ from dotenv import load_dotenv
 
 from coding.chat_session_manager import ChatSessionManager
 from coding.rpc_types import (
+    CompactData,
     CompactRequest,
+    EmptySuccessResponse,
     GeneralRequest,
     MessageRequest,
     RequestTypes,
     ResumeRequest,
     RewindRequest,
+    RewindTargetsData,
+    RpcErrorResponse,
+    RpcPayloadResponse,
     RpcResponse,
-    RpcResponseRequestType,
+    SessionData,
+    SessionListData,
+    SessionState,
     rpc_request_adapter,
 )
 from coding.session import CodingSession
@@ -36,21 +43,7 @@ async def run_loop(coding_session: CodingSession, text: str):
         emit(event.model_dump(mode="json"))
 
 
-def send_response(
-    request_type: RpcResponseRequestType,
-    success: bool,
-    id: str | None = None,
-    data: Any = None,
-    error: str | None = None,
-):
-    resp = RpcResponse(
-        id=id,
-        request_type=request_type,
-        success=success,
-        data=data,
-        error=error,
-    )
-
+def send_response(resp: RpcResponse):
     emit(resp.model_dump(mode="json"))
 
 
@@ -74,11 +67,6 @@ async def main():
 
     is_running = lambda: loop_task is not None and not loop_task.done()
 
-    emit({"type": "ready", "model": config.model})
-
-    # At server startup, create new session
-    emit({"type": "session", "session_id": session_id, "messages": []})
-
     while True:
         line = await reader.readline()
 
@@ -89,9 +77,10 @@ async def main():
             rpc_client_msg = json.loads(line)
         except Exception as exc:
             send_response(
-                request_type="parse_error",
-                success=False,
-                error=f"Invalid json: {exc}",
+                RpcErrorResponse(
+                    request_type="parse_error",
+                    error=f"Invalid json: {exc}",
+                )
             )
             continue
 
@@ -104,10 +93,11 @@ async def main():
                 req_id = rpc_client_msg.get("id")
 
             send_response(
-                request_type="parse_error",
-                id=req_id,
-                success=False,
-                error=f"Invalid request: {exc}",
+                RpcErrorResponse(
+                    request_type="parse_error",
+                    id=req_id,
+                    error=f"Invalid request: {exc}",
+                )
             )
             continue
 
@@ -115,10 +105,11 @@ async def main():
             if rpc_request.type == RequestTypes.PROMPT:
                 if is_running():
                     send_response(
-                        request_type=rpc_request.type,
-                        id=rpc_request.id,
-                        success=False,
-                        error="Agent is already running",
+                        RpcErrorResponse(
+                            request_type=rpc_request.type,
+                            id=rpc_request.id,
+                            error="Agent is already running",
+                        )
                     )
                     continue
 
@@ -142,17 +133,19 @@ async def main():
                     pass
 
             send_response(
-                request_type=rpc_request.type,
-                id=rpc_request.id,
-                success=True,
+                EmptySuccessResponse(
+                    request_type=rpc_request.type,
+                    id=rpc_request.id,
+                ),
             )
         elif isinstance(rpc_request, CompactRequest):
             if is_running():
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=False,
-                    error="Agent is already running",
+                    RpcErrorResponse(
+                        request_type=rpc_request.type,
+                        id=rpc_request.id,
+                        error="Agent is already running",
+                    )
                 )
                 continue
 
@@ -161,26 +154,29 @@ async def main():
                     custom_instructions=rpc_request.custom_instructions,
                 )
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=True,
-                    data={"response": compaction_resp},
+                    RpcPayloadResponse(
+                        request_type=RequestTypes.COMPACT,
+                        id=rpc_request.id,
+                        data=CompactData(response=compaction_resp),
+                    ),
                 )
             except Exception as exc:
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=False,
-                    error=f"Compaction failed: {exc}",
+                    RpcErrorResponse(
+                        request_type=RequestTypes.COMPACT,
+                        id=rpc_request.id,
+                        error=f"Compaction failed: {exc}",
+                    )
                 )
 
         elif isinstance(rpc_request, ResumeRequest):
             if is_running():
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=False,
-                    error="Agent is already running",
+                    RpcErrorResponse(
+                        request_type=RequestTypes.RESUME,
+                        id=rpc_request.id,
+                        error="Agent is already running",
+                    )
                 )
                 continue
 
@@ -188,10 +184,11 @@ async def main():
 
             if matched is None:
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=False,
-                    error=f"No session matching '{rpc_request.session_id}'",
+                    RpcErrorResponse(
+                        request_type=RequestTypes.RESUME,
+                        id=rpc_request.id,
+                        error=f"No session matching '{rpc_request.session_id}'",
+                    )
                 )
                 continue
 
@@ -200,24 +197,23 @@ async def main():
             coding_session = await CodingSession.load(config)
 
             send_response(
-                request_type=rpc_request.type,
-                id=rpc_request.id,
-                success=True,
-                data={
-                    "session_id": session_id,
-                    "messages": [
-                        m.model_dump(mode="json")
-                        for m in coding_session.harness.messages
-                    ],
-                },
+                RpcPayloadResponse(
+                    request_type=RequestTypes.RESUME,
+                    id=rpc_request.id,
+                    data=SessionData(
+                        session_id=session_id,
+                        messages=coding_session.harness.messages,
+                    ),
+                )
             )
         elif isinstance(rpc_request, RewindRequest):
             if is_running():
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=False,
-                    error="Agent is already running",
+                    RpcErrorResponse(
+                        request_type=rpc_request.type,
+                        id=rpc_request.id,
+                        error="Agent is already running",
+                    )
                 )
                 continue
 
@@ -226,76 +222,78 @@ async def main():
             try:
                 messages = await coding_session.rewind_to(entry_id)
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=True,
-                    data={
-                        "session_id": session_id,
-                        "messages": [m.model_dump(mode="json") for m in messages],
-                    },
+                    RpcPayloadResponse(
+                        request_type=RequestTypes.REWIND,
+                        id=rpc_request.id,
+                        data=SessionData(
+                            session_id=session_id,
+                            messages=messages,
+                        ),
+                    ),
                 )
             except Exception as exc:
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=False,
-                    error=f"Rewind is failed: {exc}",
+                    RpcErrorResponse(
+                        request_type=RequestTypes.REWIND,
+                        id=rpc_request.id,
+                        error=f"Rewind is failed: {exc}",
+                    )
                 )
         elif isinstance(rpc_request, GeneralRequest):
-            if rpc_request.type == RequestTypes.LIST_SESSIONS:
-                session_rows = [
-                    r.model_dump(mode="json") for r in session_manager.list_sessions()
-                ]
+            if is_running():
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=True,
-                    data={"rows": session_rows},
+                    RpcErrorResponse(
+                        request_type=rpc_request.type,
+                        id=rpc_request.id,
+                        error="Agent is running",
+                    )
+                )
+                continue
+
+            if rpc_request.type == RequestTypes.LIST_SESSIONS:
+                session_rows = session_manager.list_sessions()
+                send_response(
+                    RpcPayloadResponse(
+                        request_type=RequestTypes.LIST_SESSIONS,
+                        id=rpc_request.id,
+                        data=SessionListData(rows=session_rows),
+                    )
                 )
             elif rpc_request.type == RequestTypes.GET_STATE:
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=True,
-                    data={
-                        "model": config.model,
-                    },
+                    RpcPayloadResponse(
+                        request_type=RequestTypes.GET_STATE,
+                        id=rpc_request.id,
+                        data=SessionState(model=config.model),
+                    )
                 )
             elif rpc_request.type == RequestTypes.NEW_SESSION:
-                if is_running():
-                    send_response(
-                        request_type=rpc_request.type,
-                        id=rpc_request.id,
-                        success=False,
-                        error="Agent is running",
-                    )
-                    continue
-
                 session_id, storage = session_manager.new_session_storage()
                 config.storage = storage
                 coding_session = await CodingSession.load(config)
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=True,
-                    data={"session_id": session_id, "messages": []},
+                    RpcPayloadResponse(
+                        request_type=RequestTypes.NEW_SESSION,
+                        id=rpc_request.id,
+                        data=SessionData(session_id=session_id, messages=[]),
+                    )
                 )
             elif rpc_request.type == RequestTypes.GET_REWIND_TARGETS:
                 targets = await coding_session.get_rewind_targets()
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=True,
-                    data={
-                        "targets": [t.model_dump(mode="json") for t in targets],
-                    },
+                    RpcPayloadResponse(
+                        request_type=RequestTypes.GET_REWIND_TARGETS,
+                        id=rpc_request.id,
+                        data=RewindTargetsData(targets=targets),
+                    )
                 )
             elif rpc_request.type == RequestTypes.ABORT:
                 coding_session.cancel()
                 send_response(
-                    request_type=rpc_request.type,
-                    id=rpc_request.id,
-                    success=True,
+                    EmptySuccessResponse(
+                        request_type=RequestTypes.ABORT,
+                        id=rpc_request.id,
+                    )
                 )
 
     if is_running():
