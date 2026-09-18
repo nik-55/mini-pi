@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
-from agent.messages import AgentMessage, UserMessage
+from ai.types import AIModel, AgentMessage, UserMessage
 from agent.provider import ModelProvider
 from agent.session.entries import (
     CompactionEntry,
@@ -28,7 +28,7 @@ from coding.tokens import estimate_context_tokens
 @dataclass
 class CodingSessionConfig:
     provider: ModelProvider
-    model: str
+    model: AIModel
     system: str
     storage: SessionStorage
     tools: list[AgentTool] = field(default_factory=list)

@@ -51,6 +51,7 @@ exclude = [
 
 [tool.hatch.build.targets.wheel.force-include]
 "coding/tui_dist" = "coding/tui_dist"
+"extensions/bundled" = "extensions/bundled"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -65,3 +66,4 @@ exclude = [
 
 [tool.hatch.build.targets.sdist.force-include]
 "coding/tui_dist" = "coding/tui_dist"
+"extensions/bundled" = "extensions/bundled"

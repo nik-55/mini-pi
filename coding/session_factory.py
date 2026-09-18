@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 
 from agent.session.storage import SessionStorage
-from ai.openai import OpenAIProvider
-from coding.chat_session_manager import ChatSessionManager
+from ai.api.openai_completions import OpenAIProvider
+from ai.registry import get_model, resolve_api_key
 from coding.context import (
     discover_project_context,
     discover_skills,
@@ -28,10 +28,6 @@ You are helpful assistant. You have access to user filesystem.
 async def build_session_config(
     cwd: Path | None = None, storage: SessionStorage | None = None
 ) -> CodingSessionConfig:
-    api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL")
-    model = os.getenv("MODEL")
-
     cwd = cwd or Path.cwd()
 
     context_files = discover_project_context(cwd)
@@ -42,8 +38,6 @@ async def build_session_config(
         + format_skills(skills)
     )
 
-    provider = OpenAIProvider(api_key=api_key, base_url=base_url)
-
     tools = [
         create_bash_tool(),
         create_read_tool(),
@@ -52,14 +46,36 @@ async def build_session_config(
     ]
 
     extension_runtime = ExtensionRuntime()
-    extension_dir = cwd / ".mini-pi" / "extensions"
+
+    # Load default extension present in mini pi
+    in_repo_bundled_dir = Path(__file__).parent.parent / "extensions"
+    if in_repo_bundled_dir.is_dir():
+        await load_extensions_from_dir(in_repo_bundled_dir, extension_runtime)
+
+    # Load project local extensions
+    extension_dir = cwd / ".mini-pi" / "extensions" / "bundled"
     extension_dir.mkdir(parents=True, exist_ok=True)
 
     await load_extensions_from_dir(extension_dir, extension_runtime)
 
+    model_ref = os.getenv("MODEL")
+
+    if not model_ref:
+        raise ValueError(
+            "MODEL environment variable is not set (expected provider:model_id)"
+        )
+
+    ai_model = get_model(model_ref)
+    api_key = resolve_api_key(ai_model.provider)
+
+    if not api_key:
+        raise ValueError(f"API key is missing for provider: {ai_model.provider}")
+
+    provider = OpenAIProvider(api_key=api_key, base_url=ai_model.base_url)
+
     config = CodingSessionConfig(
         provider=provider,
-        model=model,
+        model=ai_model,
         system=dynamic_system_prompt,
         tools=tools,
         storage=storage,

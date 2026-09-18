@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from agent.messages import AgentMessage, UserMessage
+from ai.types import AgentMessage, UserMessage
 from agent.session.entries import (
     MessageEntry,
     SessionEntry,

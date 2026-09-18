@@ -5,7 +5,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from agent.messages import AgentMessage
+from ai.types import AgentMessage
 from coding.chat_session_manager import ChatSessionFileMetadata
 from coding.session import RewindTarget
 

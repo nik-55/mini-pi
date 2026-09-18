@@ -2,7 +2,7 @@ from collections import deque
 
 from pydantic import Field, BaseModel
 
-from agent.messages import UserMessage
+from ai.types import UserMessage
 
 
 # Snapshot of Queued Messages

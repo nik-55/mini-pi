@@ -16,7 +16,8 @@ from agent.events import (
     TurnStartEvent,
     TurnEndEvent,
 )
-from agent.messages import (
+from ai.types import (
+    AIModel,
     AgentMessage,
     AssistantMessage,
     ToolResultMessage,
@@ -29,7 +30,7 @@ from agent.validation import validate_tool_arguments
 
 async def run_agent_loop(
     provider: ModelProvider,
-    model: str,
+    model: AIModel,
     system: str,
     messages: list[AgentMessage],
     tools: list[AgentTool],

@@ -264,7 +264,7 @@ async def main():
                     RpcPayloadResponse(
                         request_type=RequestTypes.GET_STATE,
                         id=rpc_request.id,
-                        data=SessionState(model=config.model),
+                        data=SessionState(model=config.model.name),
                     )
                 )
             elif rpc_request.type == RequestTypes.NEW_SESSION:

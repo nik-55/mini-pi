@@ -4,6 +4,7 @@ from typing import Any, Awaitable, Literal
 from pydantic import BaseModel
 
 from agent.tools import AgentTool
+from ai.registry import Provider, register_inference_provider
 from coding.commands import SlashCommand
 
 
@@ -59,6 +60,9 @@ class ExtensionAPI:
 
     def register_command(self, command: SlashCommand):
         self.commands.append(command)
+
+    def register_llm_provider(self, provider: Provider) -> None:
+        register_inference_provider(provider)
 
     # @api.on
     def on(self, event: str):

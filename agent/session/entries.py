@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from agent.messages import AgentMessage
+from ai.types import AgentMessage
 
 
 class SessionType(StrEnum):

@@ -4,7 +4,7 @@ import sys
 from dotenv import load_dotenv
 
 from agent.events import EventTypes
-from agent.messages import (
+from ai.types import (
     AgentMessage,
     AssistantMessage,
     MessageType,
@@ -54,7 +54,7 @@ async def main():
     )
 
     print(
-        f"Mini Pi started with model '{config.model}'. Session: {session_id}.\n",
+        f"Mini Pi started with model '{config.model.name}'. Session: {session_id}.\n",
         flush=True,
     )
 

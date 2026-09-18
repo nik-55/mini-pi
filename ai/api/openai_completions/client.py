@@ -6,12 +6,12 @@ import httpx
 
 from agent.cancellation import CancellationSignal
 from agent.events import AgentEvent, DoneEvent
-from agent.messages import AgentMessage
 from agent.provider import ModelProvider
 from agent.tools import AgentTool
-from ai.parser import ChatStreamParser
+from ai.types import AIModel, AgentMessage
+from ai.api.openai_completions.parser import ChatStreamParser
+from ai.api.openai_completions.serializer import build_chat_payload
 from ai.retry import calculate_retry_delay, is_retryable_error
-from ai.serializer import build_chat_payload
 
 
 class OpenAIProvider(ModelProvider):
@@ -29,7 +29,7 @@ class OpenAIProvider(ModelProvider):
 
     def stream_response(
         self,
-        model: str,
+        model: AIModel,
         system: str,
         messages: list[AgentMessage],
         tools: list[AgentTool],

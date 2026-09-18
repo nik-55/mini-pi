@@ -12,7 +12,7 @@ from agent.events import (
     TurnEndEvent,
 )
 from agent.loop import run_agent_loop
-from agent.messages import AgentMessage, AssistantMessage, UserMessage
+from ai.types import AIModel, AgentMessage, AssistantMessage, UserMessage
 from agent.provider import ModelProvider
 from agent.queue import MessageQueueHandler
 from agent.tools import AgentTool
@@ -21,7 +21,7 @@ from agent.tools import AgentTool
 @dataclass
 class AgentHarnessConfig:
     provider: ModelProvider
-    model: str
+    model: AIModel
     system: str
     tools: list[AgentTool] = field(default_factory=list)
     max_turns: int = 40

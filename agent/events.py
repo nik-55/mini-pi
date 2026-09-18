@@ -3,7 +3,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
-from agent.messages import AgentMessage, AssistantMessage, ToolResultMessage
+from ai.types import AgentMessage, AssistantMessage, ToolResultMessage
 
 # Events: Agent Loop needs to broadcast state transitions in real time so different subscriber can act accordingly
 #

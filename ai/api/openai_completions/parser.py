@@ -9,7 +9,7 @@ from agent.events import (
     TextDeltaEvent,
     ThinkingDeltaEvent,
 )
-from agent.messages import AssistantMessage, StopReason, ToolCall
+from ai.types import AssistantMessage, StopReason, ToolCall, Usage
 
 
 def _str_to_dict(text: str) -> dict | None:
@@ -66,6 +66,8 @@ class ChatStreamParser:
         self.thinking_parts: list[str] = []
         self.tool_call_builders: dict[int, ToolCallBuilder] = {}
         self.finish_reason: str | None = None
+        self.thinking_key: str | None = None
+        self.usage: Usage | None = None
 
     def _first_choice(self, chunk: dict) -> dict | None:
         choices = chunk.get("choices", None)
@@ -101,6 +103,8 @@ class ChatStreamParser:
             tool_calls=tool_calls,
             stop_reason=stop_reason,
             error_message=error_message,
+            thinking_signature=self.thinking_key,
+            usage=self.usage,
         )
 
     def _map_finish_reason_to_stop_reason(
@@ -112,6 +116,28 @@ class ChatStreamParser:
         return finish_reason
 
     def feed(self, chunk: dict) -> list[AgentEvent]:
+        # When include usage is True, choice can be empty
+        # Extract usage before asserting on choice
+        # usage chunk is emitted at end
+        usage_dict = chunk.get("usage")
+
+        if isinstance(usage_dict, dict):
+            # TODO: fireworks emit different keys
+            prompt_tokens = usage_dict.get("prompt_tokens") or 0
+            completion_tokens = usage_dict.get("completion_tokens") or 0
+            total_tokens = usage_dict.get("total_tokens") or (
+                prompt_tokens + completion_tokens
+            )
+            prompt_details = usage_dict.get("prompt_token_details") or {}
+            cached_tokens = prompt_details.get("cached_tokens", 0) or 0
+
+            self.usage = Usage(
+                input_tokens=prompt_tokens,
+                output_tokens=completion_tokens,
+                cache_read=cached_tokens,
+                total_tokens=total_tokens,
+            )
+
         # In stream error payloads
         if "error" in chunk and chunk["error"]:
             err = chunk["error"]
@@ -139,11 +165,20 @@ class ChatStreamParser:
 
         events: list[AgentEvent] = []
 
-        for field_name in ("reasoning_content", "reasoning", "thinking"):
+        for field_name in (
+            "reasoning_content",
+            "reasoning",
+            "thinking",
+            "reasoning_text",
+        ):
             thinking = delta.get(field_name)
 
             if isinstance(thinking, str) and thinking:
                 self.thinking_parts.append(thinking)
+
+                if self.thinking_key is None:
+                    self.thinking_key = field_name
+
                 events.append(ThinkingDeltaEvent(delta=thinking))
                 break
 

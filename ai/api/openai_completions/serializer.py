@@ -1,7 +1,8 @@
 from typing import Any
 import json
 
-from agent.messages import (
+from ai.types import (
+    AIModel,
     AgentMessage,
     AssistantMessage,
     ToolCall,
@@ -10,8 +11,6 @@ from agent.messages import (
 )
 from agent.tools import AgentTool
 from ai.transform import transform_messages
-
-# OpenAI represent Chat completion API /v1/chat/completions
 
 
 def tool_to_openai(tool: AgentTool) -> dict[str, Any]:
@@ -47,7 +46,8 @@ def message_to_openai(message: AgentMessage) -> dict[str, Any]:
         msg = {"role": "assistant", "content": message.content}
 
         if message.thinking:
-            msg["reasoning_content"] = message.thinking
+            thinking_key = message.thinking_signature or "reasoning_content"
+            msg[thinking_key] = message.thinking
 
         if len(message.tool_calls) > 0:
             msg["tool_calls"] = [
@@ -66,7 +66,7 @@ def message_to_openai(message: AgentMessage) -> dict[str, Any]:
 
 
 def build_chat_payload(
-    model: str,
+    model: AIModel,
     system: str,
     messages: list[AgentMessage],
     tools: list[AgentTool],
@@ -75,11 +75,20 @@ def build_chat_payload(
     payload = {
         "messages": [{"role": "system", "content": system}]
         + [message_to_openai(m) for m in messages],
-        "model": model,
+        "model": model.id,
         "stream": True,
     }
 
     if len(tools) > 0:
         payload["tools"] = [tool_to_openai(t) for t in tools]
+
+    # Include usage unless disabled by compat
+    supports_usage_in_streaming = True
+
+    if model.compat:
+        supports_usage_in_streaming = model.compat.supports_usage_in_streaming
+
+    if supports_usage_in_streaming:
+        payload["stream_options"] = {"include_usage": True}
 
     return payload

@@ -1,4 +1,4 @@
-from agent.messages import (
+from ai.types import (
     AgentMessage,
     AssistantMessage,
     ToolCall,

@@ -1,5 +1,6 @@
 from agent.events import DoneEvent, TextDeltaEvent
-from agent.messages import (
+from ai.types import (
+    AIModel,
     AgentMessage,
     AssistantMessage,
     ToolResultMessage,
@@ -110,7 +111,7 @@ def serialize_messages_for_compaction(messages: list[AgentMessage]) -> str:
 
 async def generate_compaction_summary(
     provider: ModelProvider,
-    model: str,
+    model: AIModel,
     messages_to_summarize: list[AgentMessage],
     custom_instructions: str | None = None,
 ) -> str:

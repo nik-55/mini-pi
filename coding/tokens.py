@@ -1,6 +1,6 @@
 import math
 
-from agent.messages import (
+from ai.types import (
     AgentMessage,
     AssistantMessage,
     ToolResultMessage,
