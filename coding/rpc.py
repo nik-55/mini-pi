@@ -240,7 +240,7 @@ async def main():
                     )
                 )
         elif isinstance(rpc_request, GeneralRequest):
-            if is_running():
+            if is_running() and rpc_request.type != RequestTypes.ABORT:
                 send_response(
                     RpcErrorResponse(
                         request_type=rpc_request.type,

@@ -1,8 +1,8 @@
 import { Container, Spacer, Text, type Component } from "@earendil-works/pi-tui";
 import { cyan_color_wrapper, dim_color_wrapper, magneta_color_wrapper, red_color_wrapper, type Colorfn } from "./theme.js";
 import { CollapsibleComponent, MarkdownMsgComponent } from "./component.js";
-import { summarizeArgs } from "./formatters.js";
-import type { Message } from "./types/message.js";
+import { formatTokens, summarizeArgs } from "./formatters.js";
+import type { AssistantMessageData, Message, Usage } from "./types/message.js";
 
 export class Trajectory {
     public trajectoryContainer = new Container();
@@ -87,6 +87,31 @@ export class Trajectory {
         this.requestRender();
     }
 
+    public handleAssistantMessageEnd(message: AssistantMessageData) {
+        this.finishThinking();
+        this.currentAssistantMarkdownMsgComponent = null;
+
+        if (message.stop_reason == "error") {
+            this.addText(`Error: ${message.error_message || "(unknown error)"}`, red_color_wrapper);
+        }
+        else if (message.stop_reason == "aborted") {
+            this.addText(`${message.error_message || "(operation cancelled)"}`, red_color_wrapper);
+        }
+
+        if (message.usage) {
+            this.handleAssistantUsage(message.usage);
+        }
+    }
+
+    public handleAssistantUsage(usage: Usage) {
+        const parts = [
+            `↑${formatTokens(usage.input_tokens)}`,
+            `↓${formatTokens(usage.output_tokens)}`,
+            `R${formatTokens(usage.cache_read)}`
+        ]
+        this.addText(parts.join(" ") + " tokens", dim_color_wrapper);
+    }
+
     public handleToolEnd(name: string, tool_call_id: string, result: string, is_error: boolean) {
         const block = this.tools_to_component_mapping.get(tool_call_id);
         if (block) {
@@ -122,6 +147,16 @@ export class Trajectory {
                     tcBlock.detail = JSON.stringify(tc.arguments, null, 2);
                     this.tools_to_component_mapping.set(tc.id, tcBlock);
                     tcBlock.sync();
+                }
+
+                if (m.stop_reason == "error") {
+                    this.addText(`Error: ${m.error_message || "(unknown error)"}`, red_color_wrapper);
+                } else if (m.stop_reason == "aborted") {
+                    this.addText(m.error_message || "(operation cancelled)", red_color_wrapper);
+                }
+
+                if (m.usage) {
+                    this.handleAssistantUsage(m.usage);
                 }
             }
             else if (m.role == "tool_result") {

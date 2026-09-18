@@ -286,6 +286,12 @@ editor.onSubmit = (text: string) => {
 let lastEscTime = 0;
 const DOUBLE_ESC_TIMEOUT_MS = 400;
 
+const abortAgent = (async () => {
+    try { await agent.abort() } catch (err) {
+        trajectory.addText(`Error aborting: ${err}`);
+    }
+});
+
 tui.addInputListener((data: string) => {
     if (activePicker) {
         if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.esc)) {
@@ -297,7 +303,7 @@ tui.addInputListener((data: string) => {
 
     if (matchesKey(data, Key.ctrl("c"))) {
         if (busy) {
-            agent.abort();
+            abortAgent();
             return { consume: true }; // Ctrl+c is being consumed, dont passes down
         } else {
             agent.kill();
@@ -319,7 +325,7 @@ tui.addInputListener((data: string) => {
 
     else if ((matchesKey(data, Key.esc))) {
         if (busy) {
-            agent.abort();
+            abortAgent();
             return { consume: true };
         }
 
@@ -360,8 +366,7 @@ function handle_coding_agent_event(event: AgentEvent) {
 
         case "message_end": {
             if (event.message.role == "assistant") {
-                trajectory.finishThinking();
-                trajectory.currentAssistantMarkdownMsgComponent = null;
+                trajectory.handleAssistantMessageEnd(event.message);
             }
             break;
         }

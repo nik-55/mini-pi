@@ -11,7 +11,7 @@ from agent.tools import AgentTool
 from ai.types import AIModel, AgentMessage
 from ai.api.openai_completions.parser import ChatStreamParser
 from ai.api.openai_completions.serializer import build_chat_payload
-from ai.retry import calculate_retry_delay, is_retryable_error
+from ai.provider_retry import abortable_sleep, calculate_retry_delay, is_retryable_error
 
 
 class OpenAIProvider(ModelProvider):
@@ -88,7 +88,17 @@ class OpenAIProvider(ModelProvider):
                                         return
 
                                     attempt += 1
-                                    await asyncio.sleep(delay)
+                                    is_aborted = not (
+                                        await abortable_sleep(delay, signal)
+                                    )
+                                    if is_aborted:
+                                        yield DoneEvent(
+                                            message=parser.build_assistant_message(
+                                                stop_reason="aborted",
+                                            )
+                                        )
+                                        return
+
                                     continue
 
                                 yield DoneEvent(
@@ -146,7 +156,15 @@ class OpenAIProvider(ModelProvider):
                             return
 
                         attempt += 1
-                        await asyncio.sleep(delay)
+                        is_aborted = not (await abortable_sleep(delay, signal))
+                        if is_aborted:
+                            yield DoneEvent(
+                                message=parser.build_assistant_message(
+                                    stop_reason="aborted",
+                                )
+                            )
+                            return
+
                         continue
 
                     yield DoneEvent(
