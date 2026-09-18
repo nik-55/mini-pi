@@ -4,13 +4,14 @@ import json
 
 import httpx
 
-from agent.events import AssistantErrorEvent, AgentEvent
-from agent.messages import AgentMessage
+from agent.cancellation import CancellationSignal
+from agent.events import AgentEvent, DoneEvent
 from agent.provider import ModelProvider
 from agent.tools import AgentTool
-from ai.parser import ChatStreamParser
-from ai.retry import calculate_retry_delay, is_retryable_error
-from ai.serializer import build_chat_payload
+from ai.types import AIModel, AgentMessage
+from ai.api.openai_completions.parser import ChatStreamParser
+from ai.api.openai_completions.serializer import build_chat_payload
+from ai.provider_retry import abortable_sleep, calculate_retry_delay, is_retryable_error
 
 
 class OpenAIProvider(ModelProvider):
@@ -28,10 +29,11 @@ class OpenAIProvider(ModelProvider):
 
     def stream_response(
         self,
-        model: str,
+        model: AIModel,
         system: str,
         messages: list[AgentMessage],
         tools: list[AgentTool],
+        signal: CancellationSignal | None = None,
     ) -> AsyncIterator[AgentEvent]:
         payload = build_chat_payload(model, system, messages, tools)
 
@@ -42,6 +44,15 @@ class OpenAIProvider(ModelProvider):
             while True:
                 has_yielded_event = False
                 parser = ChatStreamParser()
+
+                if signal is not None and signal.is_cancelled():
+                    yield DoneEvent(
+                        message=parser.build_assistant_message(
+                            stop_reason="aborted",
+                        )
+                    )
+
+                    return
 
                 try:
                     async with httpx.AsyncClient(
@@ -68,19 +79,46 @@ class OpenAIProvider(ModelProvider):
                                             response_headers=response_headers,
                                         )
                                     except ValueError as verr:
-                                        yield AssistantErrorEvent(
-                                            error=f"{body_text} ({verr})"
+                                        yield DoneEvent(
+                                            message=parser.build_assistant_message(
+                                                stop_reason="error",
+                                                error_message=f"{body_text} ({verr})",
+                                            )
                                         )
                                         return
 
                                     attempt += 1
-                                    await asyncio.sleep(delay)
+                                    is_aborted = not (
+                                        await abortable_sleep(delay, signal)
+                                    )
+                                    if is_aborted:
+                                        yield DoneEvent(
+                                            message=parser.build_assistant_message(
+                                                stop_reason="aborted",
+                                            )
+                                        )
+                                        return
+
                                     continue
 
-                                yield AssistantErrorEvent(error=body_text)
+                                yield DoneEvent(
+                                    message=parser.build_assistant_message(
+                                        stop_reason="error",
+                                        error_message=body_text,
+                                    )
+                                )
                                 return
 
                             async for line in response.aiter_lines():
+                                if signal is not None and signal.is_cancelled():
+                                    yield DoneEvent(
+                                        message=parser.build_assistant_message(
+                                            stop_reason="aborted",
+                                        )
+                                    )
+
+                                    return
+
                                 data = self._parse_sse_line(line)
 
                                 if data is None:
@@ -109,14 +147,32 @@ class OpenAIProvider(ModelProvider):
                                 attempt=attempt,
                             )
                         except ValueError as verr:
-                            yield AssistantErrorEvent(error=f"{err} ({verr})")
+                            yield DoneEvent(
+                                message=parser.build_assistant_message(
+                                    stop_reason="error",
+                                    error_message=f"{err} ({verr})",
+                                )
+                            )
                             return
 
                         attempt += 1
-                        await asyncio.sleep(delay)
+                        is_aborted = not (await abortable_sleep(delay, signal))
+                        if is_aborted:
+                            yield DoneEvent(
+                                message=parser.build_assistant_message(
+                                    stop_reason="aborted",
+                                )
+                            )
+                            return
+
                         continue
 
-                    yield AssistantErrorEvent(error=str(err))
+                    yield DoneEvent(
+                        message=parser.build_assistant_message(
+                            stop_reason="error",
+                            error_message=str(err),
+                        )
+                    )
                     return
 
         return _run()

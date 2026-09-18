@@ -1,18 +1,20 @@
 import abc
 from collections.abc import AsyncIterator
 
+from agent.cancellation import CancellationSignal
 from agent.events import AgentEvent
-from agent.messages import AgentMessage
 from agent.tools import AgentTool
+from ai.types import AIModel, AgentMessage
 
 
 class ModelProvider(abc.ABC):
     def stream_response(
         self,
         *,
-        model: str,
+        model: AIModel,
         system: str,
         messages: list[AgentMessage],
         tools: list[AgentTool],
+        signal: CancellationSignal | None = None,
     ) -> AsyncIterator[AgentEvent]:
         pass

@@ -1,3 +1,21 @@
+# A command is an instruction from the user to our app, as opposed to a message for the model.
+# Right now, we can split commands into two categories:
+#
+# > Built-in commands are handled at the interface layer (CLI or TUI, where the user interacts
+# with the app). "Command" is a loose term here, as a built-in command is an action that the
+# interface offers, and slash text is just one way to trigger it. The interface can also offer
+# a button or key binding to trigger the same action.
+# The interface interprets the action and can send a typed action to the session. For example,
+# compaction can be triggered by a button. Once the interface interprets that the user wants
+# to trigger compaction, it sends a typed action to the session to invoke it. However, the
+# session can keep track of supported built-in commands and their descriptions so that every
+# interface can implement them.
+#
+# > Extension commands are handled at the session layer. Currently, they are triggered by slash
+# text, and the extension knows how to act on them. The interface does not have any built-in
+# handling for them. The interface may send the slash text as a normal prompt, but the session
+# can intercept it and interpret it as a command.
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal

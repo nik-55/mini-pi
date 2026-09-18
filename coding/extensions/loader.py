@@ -54,8 +54,8 @@ async def load_extensions_from_dir(
 
     loaded: list[ExtensionAPI] = []
 
-    for path in sorted(directory.iterdir(), key=lambda p: p.name):
-        if path.is_file() and path.suffix == ".py":
+    for path in sorted(directory.rglob("*.py"), key=lambda p: p.name):
+        if path.is_file() and not path.name.startswith((".", "_")):
             api = await load_extension_from_file(path, runtime)
 
             if api is not None:

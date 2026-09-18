@@ -15,12 +15,12 @@ import {
     red_color_wrapper,
     editorTheme,
 } from './theme.js';
-import { createAgentProcess } from "./agent.js";
 import { Trajectory } from "./trajectory.js";
 import type { AgentEvent } from "./types/events.js";
 import { ActivityLoader } from "./loader.js";
 import { TUIHeader } from "./header.js";
 import { PickerComponent, type PickerOptions } from "./component.js";
+import { RpcClient } from "./rpc_client.js";
 
 // UI Setup
 const terminal = new ProcessTerminal();
@@ -40,11 +40,19 @@ let busy: boolean = false;
 let currentSessionId: string = "";
 
 // Agent
-const agent = createAgentProcess();
+const agent = new RpcClient();
 
 agent.onExit(() => {
     tui.stop();
     process.exit(0);
+})
+
+// Initial state fetch
+agent.getState().then((state) => {
+    tuiHeader.currentModel = state.model;
+    tuiHeader.updateHeader();
+}).catch((err) => {
+    trajectory.addText(`Failed to connect to agent ${err instanceof Error ? err.message : err}`, red_color_wrapper);
 })
 
 let activePicker: PickerComponent | null = null;
@@ -101,44 +109,172 @@ function submitInput(text: string, isFollowup: boolean = false) {
     if (busy) {
         if (isFollowup) {
             trajectory.addText(`follow-up > ${text}`, cyan_color_wrapper);
-            agent.follow_up(text);
+            (async () => {
+                try {
+                    await agent.followUp(text);
+                } catch (err) {
+                    trajectory.addText(`Error sending follow up: ${err}`);
+                }
+            })();
         }
         else {
             trajectory.addText(`steer > ${text}`, cyan_color_wrapper);
-            agent.steer(text);
+            (async () => {
+                try {
+                    await agent.steer(text);
+                } catch (err) {
+                    trajectory.addText(`Error sending steering: ${err}`);
+                }
+            })();
         }
         return;
     }
 
     if (text == "/clear") {
-        agent.send({ "type": "new_session" });
+        (async () => {
+            try {
+                const data = await agent.newSession();
+                currentSessionId = data.session_id;
+                trajectory.clear();
+                trajectory.addText(`Session started: ${currentSessionId}`, dim_color_wrapper);
+            }
+            catch (err) {
+                trajectory.addText(`Error clearing session: ${err}`, red_color_wrapper);
+            }
+        })();
         return;
     }
 
     if (text == "/session") {
-        trajectory.addText(`Active session: ${currentSessionId}`);
+        trajectory.addText(`Active session: ${currentSessionId || '(none)'}`);
         return;
     }
 
     if (text == "/rewind") {
-        agent.getRewindTargets();
+        (async () => {
+            try {
+                const data = await agent.getRewindTargets();
+                if (data.targets.length == 0) {
+                    trajectory.addText("No message to rewind to", dim_color_wrapper);
+                    return;
+                }
+
+                const items: SelectItem[] = data.targets.map((t) => {
+                    const text = t.text.trim() || "(empty message)";
+                    const truncated = text.length > 70 ? text.slice(0, 67) + "..." : text;
+                    return {
+                        value: t.entry_id,
+                        label: truncated,
+                        description: t.text,
+                    }
+                })
+
+                const selected = await showPicker({
+                    title: "Select message to rewind to",
+                    items,
+                })
+                if (selected) {
+                    editor.setText(selected.description ?? "(empty message)");
+                    tui.setFocus(editor);
+                    tui.requestRender();
+
+                    const rewindData = await agent.rewind(selected.value);
+                    currentSessionId = rewindData.session_id;
+                    trajectory.loadMessages(rewindData.messages);
+                }
+
+            } catch (err) {
+                trajectory.addText(`Error rewinding: ${err}`, red_color_wrapper);
+            }
+        })();
         return;
     }
 
     if (text.startsWith("/resume")) {
         const id = text.slice("/resume".length).trim();
-        if (id) {
-            agent.resume(id);
-        } else {
-            agent.listSessions();
-        }
+        (async () => {
+            async function resume(id_to_resume: string) {
+                const data = await agent.resume(id_to_resume);
+                currentSessionId = data.session_id;
 
+                trajectory.loadMessages(data.messages);
+
+                for (const m of data.messages) {
+                    if (m.role == "user" && m.content) {
+                        editor.addToHistory(m.content);
+                    }
+                }
+                trajectory.addText(`Resumed ${currentSessionId} - ${data.messages.length} messages`, dim_color_wrapper);
+            }
+            try {
+
+                if (id) {
+                    await resume(id);
+                } else {
+                    const data = await agent.listSessions();
+                    if (data.rows.length == 0) {
+                        trajectory.addText("No saved sessions", dim_color_wrapper);
+                    }
+                    else {
+                        const items: SelectItem[] = data.rows.map((row) => {
+                            const title = row.title || row.id;
+                            const label = row.id == currentSessionId ? `${title} (current)` : title;
+                            const formattedDate = row.updated_at.split(".")[0]?.replace("T", " ") as string;
+
+                            return {
+                                value: row.id,
+                                label: label,
+                                description: formattedDate,
+                            }
+                        });
+
+                        const selected = await showPicker({
+                            title: 'Select session to resume:',
+                            items,
+                        })
+
+                        if (selected) {
+                            await resume(selected.value);
+                        }
+
+                    }
+                }
+            } catch (err) {
+
+            }
+        })();
+        return;
+    }
+
+    if (text == "/compact" || text.startsWith("/compact ")) {
+        const customInstructions = text.slice("/compact".length).trim() || undefined;
+
+        (async () => {
+            try {
+                activityLoader.start("compacting...");
+                busy = true;
+                const data = await agent.compact(customInstructions);
+                activityLoader.stop();
+                busy = false;
+                trajectory.addText(`Compacted sessions: ${data.response}`, dim_color_wrapper);
+            } catch (err) {
+                activityLoader.stop();
+                busy = false;
+                trajectory.addText(`Error compacting: ${err}`, red_color_wrapper);
+            }
+        })();
         return;
     }
 
     activityLoader.start("working...")
     trajectory.addText(`> ${text}`, cyan_color_wrapper);
-    agent.prompt(text);
+    (async () => {
+        try {
+            await agent.prompt(text);
+        } catch (err) {
+            trajectory.addText(`Error sending prompt: ${err}`);
+        }
+    })();
     busy = true;
 }
 
@@ -149,6 +285,12 @@ editor.onSubmit = (text: string) => {
 
 let lastEscTime = 0;
 const DOUBLE_ESC_TIMEOUT_MS = 400;
+
+const abortAgent = (async () => {
+    try { await agent.abort() } catch (err) {
+        trajectory.addText(`Error aborting: ${err}`);
+    }
+});
 
 tui.addInputListener((data: string) => {
     if (activePicker) {
@@ -161,7 +303,7 @@ tui.addInputListener((data: string) => {
 
     if (matchesKey(data, Key.ctrl("c"))) {
         if (busy) {
-            agent.cancel();
+            abortAgent();
             return { consume: true }; // Ctrl+c is being consumed, dont passes down
         } else {
             agent.kill();
@@ -183,7 +325,7 @@ tui.addInputListener((data: string) => {
 
     else if ((matchesKey(data, Key.esc))) {
         if (busy) {
-            agent.cancel();
+            abortAgent();
             return { consume: true };
         }
 
@@ -207,134 +349,49 @@ tui.addInputListener((data: string) => {
 // Agent Event Handler
 function handle_coding_agent_event(event: AgentEvent) {
     switch (event.type) {
-        case "ready": {
-            tuiHeader.currentModel = event.model;
-            tuiHeader.updateHeader();
+        case "agent_start": {
+            busy = true;
             break;
         }
 
-        case "session": {
-            currentSessionId = event.session_id;
-
-            if (event.messages.length > 0) {
-                trajectory.loadMessages(event.messages);
-
-                for (const m of event.messages) {
-                    if (m.role == "user" && m.content) {
-                        editor.addToHistory(m.content);
-                    }
-                }
-                trajectory.addText(`Resumed ${currentSessionId} - ${event.messages.length} messages`, dim_color_wrapper);
-            } else {
-                trajectory.clear();
-                trajectory.addText(`Session started: ${event.session_id}`, dim_color_wrapper);
+        case "message_update": {
+            const update = event.assistant_message_event;
+            if (update.type == "thinking_delta") {
+                trajectory.handleThinkingDelta(update.delta);
+            } else if (update.type == "text_delta") {
+                trajectory.handleTextDelta(update.delta);
             }
             break;
         }
 
-        case "notice": {
-            trajectory.addText(event.text, dim_color_wrapper);
+        case "message_end": {
+            if (event.message.role == "assistant") {
+                trajectory.handleAssistantMessageEnd(event.message);
+            }
             break;
         }
 
-        case "ThinkingDeltaEvent": {
-            trajectory.handleThinkingDelta(event.delta);
-            break;
-        }
-
-        case "TextDeltaEvent": {
-            trajectory.handleTextDelta(event.delta);
-            break;
-        }
-
-        case "ToolExecutionStartEvent": {
+        case "tool_execution_start": {
             trajectory.handleToolStart(event.tool_name, event.tool_call_id, event.arguments);
             break;
         }
 
-        case "ToolExecutionEndEvent": {
+        case "tool_execution_end": {
             trajectory.handleToolEnd(event.tool_name, event.tool_call_id, event.result, event.is_error);
             break;
         }
 
-        case "AssistantErrorEvent": {
-            activityLoader.stop();
-            trajectory.endLoop();
-            trajectory.addText(`Error: ${event.error}`, red_color_wrapper);
-            break;
-        }
-
-        case "AssistantDoneEvent": {
-            trajectory.finishThinking();
-            trajectory.currentAssistantMarkdownMsgComponent = null;
-            break;
-        }
-
-        case "loop_end": {
+        case "agent_end": {
             activityLoader.stop();
             trajectory.endLoop();
             busy = false;
             break;
         }
 
-        case "sessions": {
-            if (event.rows.length == 0) {
-                trajectory.addText("No saved sessions", dim_color_wrapper);
-            }
-            else {
-                const items: SelectItem[] = event.rows.map((row) => {
-                    const title = row.title || row.id;
-                    const label = row.id == currentSessionId ? `${title} (current)` : title;
-                    const formattedDate = row.updated_at.split(".")[0]?.replace("T", " ") as string;
-
-                    return {
-                        value: row.id,
-                        label: label,
-                        description: formattedDate,
-                    }
-                });
-
-                showPicker({
-                    title: 'Select session to resume:',
-                    items,
-                }).then((selected) => {
-                    if (selected) {
-                        agent.resume(selected.value);
-                    }
-                });
-            }
+        case "turn_start":
+        case "turn_end":
+        case "message_start":
             break;
-        }
-
-        case "rewind_targets": {
-            if (event.targets.length == 0) {
-                trajectory.addText("No message to rewind to", dim_color_wrapper);
-            } else {
-                const items: SelectItem[] = event.targets.map((t) => {
-                    const text = t.text.trim() || "(empty message)";
-                    const truncated = text.length > 70 ? text.slice(0, 67) + "..." : text;
-                    return {
-                        value: t.entry_id,
-                        label: truncated,
-                        description: t.text,
-                    }
-                })
-
-                showPicker({
-                    title: "Select message to rewind to",
-                    items,
-                }).then((selected) => {
-                    if (selected) {
-                        editor.setText(selected.description ?? "(empty message)");
-                        tui.setFocus(editor);
-                        tui.requestRender();
-                        agent.rewind(selected.value);
-                    }
-                })
-            }
-
-            break;
-        }
     }
 }
 

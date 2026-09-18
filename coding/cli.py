@@ -3,16 +3,11 @@ import sys
 
 from dotenv import load_dotenv
 
-from agent.events import (
-    AssistantErrorEvent,
-    TextDeltaEvent,
-    ThinkingDeltaEvent,
-    ToolExecutionEndEvent,
-    ToolExecutionStartEvent,
-)
-from agent.messages import (
+from agent.events import EventTypes
+from ai.types import (
     AgentMessage,
     AssistantMessage,
+    MessageType,
     ToolResultMessage,
     UserMessage,
 )
@@ -59,7 +54,7 @@ async def main():
     )
 
     print(
-        f"Mini Pi started with model '{config.model}'. Session: {session_id}.\n",
+        f"Mini Pi started with model '{config.model.name}'. Session: {session_id}.\n",
         flush=True,
     )
 
@@ -138,24 +133,28 @@ async def main():
 
         try:
             async for event in coding_session.prompt(user_input):
-                if isinstance(event, ThinkingDeltaEvent):
-                    if not in_thinking:
-                        print("|start_thinking|\n", end="", flush=True)
-                        in_thinking = True
+                if event.type == EventTypes.MESSAGE_UPDATE:
+                    delta_event = event.assistant_message_event
 
-                    print(f"\033[90m{event.delta}\033[0m", end="", flush=True)
-                elif in_thinking:
-                    in_thinking = False
-                    print("\n|end_thinking|\n\n", end="", flush=True)
+                    if delta_event.type == EventTypes.THINKING_DELTA:
+                        if not in_thinking:
+                            print("|start_thinking|\n", end="", flush=True)
+                            in_thinking = True
 
-                if isinstance(event, TextDeltaEvent):
-                    print(event.delta, end="", flush=True)
-                elif isinstance(event, ToolExecutionStartEvent):
+                        print(f"\033[90m{delta_event.delta}\033[0m", end="", flush=True)
+                    elif in_thinking:
+                        in_thinking = False
+                        print("\n|end_thinking|\n\n", end="", flush=True)
+
+                    if delta_event.type == EventTypes.TEXT_DELTA:
+                        print(delta_event.delta, end="", flush=True)
+
+                elif event.type == EventTypes.TOOL_EXECUTION_START:
                     print(
                         f"\n\n[Tool Call: {event.tool_name}({event.arguments})]\n",
                         flush=True,
                     )
-                elif isinstance(event, ToolExecutionEndEvent):
+                elif event.type == EventTypes.TOOL_EXECUTION_END:
                     snippet = event.result[:200] + (
                         "..." if len(event.result) > 200 else ""
                     )
@@ -163,8 +162,18 @@ async def main():
                         f"\n\n[Tool Output {event.tool_name}: {snippet.strip()}]\n",
                         flush=True,
                     )
-                elif isinstance(event, AssistantErrorEvent):
-                    print(f"\n[Error: {event.error}]\n", flush=True)
+                elif event.type == EventTypes.MESSAGE_END:
+                    if in_thinking:
+                        in_thinking = False
+
+                    if (
+                        event.message.role == MessageType.ASSISTANT
+                        and event.message.stop_reason in ("error", "aborted")
+                    ):
+                        print(
+                            f"\n[{event.message.stop_reason.upper()}]: {event.message.error_message}",
+                            flush=True,
+                        )
 
         except (KeyboardInterrupt, asyncio.CancelledError):
             print("\n[Interrupted by user]\n", flush=True)
