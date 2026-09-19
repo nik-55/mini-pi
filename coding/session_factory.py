@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 
-from agent.session.storage import SessionStorage
 from ai.api.openai_completions import OpenAIProvider
 from ai.registry import get_model, resolve_api_key
 from coding.context import (
@@ -13,6 +12,7 @@ from coding.context import (
 from coding.extensions.loader import load_extensions_from_dir
 from coding.extensions.runtime import ExtensionRuntime
 from coding.session import CodingSessionConfig
+from coding.session_manager.manager import ChatSessionManager
 from coding.tools import (
     create_edit_tool,
     create_read_tool,
@@ -26,9 +26,13 @@ You are helpful assistant. You have access to user filesystem.
 
 
 async def build_session_config(
-    cwd: Path | None = None, storage: SessionStorage | None = None
+    cwd: Path | None = None,
+    chat_session_manager: ChatSessionManager | None = None,
 ) -> CodingSessionConfig:
     cwd = cwd or Path.cwd()
+
+    if chat_session_manager is None:
+        chat_session_manager = ChatSessionManager.new_session(cwd=cwd)
 
     context_files = discover_project_context(cwd)
     skills = discover_skills(cwd)
@@ -78,7 +82,7 @@ async def build_session_config(
         model=ai_model,
         system=dynamic_system_prompt,
         tools=tools,
-        storage=storage,
+        chat_session_manager=chat_session_manager,
         auto_compact_threshold=50_000,
         extension_runtime=extension_runtime,
     )

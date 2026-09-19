@@ -1,11 +1,10 @@
 import asyncio
 import json
 import sys
-from typing import Any
 
 from dotenv import load_dotenv
 
-from coding.chat_session_manager import ChatSessionManager
+from coding.session_manager.manager import ChatSessionManager, list_sessions
 from coding.rpc_types import (
     CompactData,
     CompactRequest,
@@ -48,11 +47,7 @@ def send_response(resp: RpcResponse):
 
 
 async def main():
-    session_manager = ChatSessionManager()
-    session_id, storage = session_manager.new_session_storage()
-
-    config = await build_session_config(storage=storage)
-
+    config = await build_session_config(chat_session_manager=ChatSessionManager.new_session())
     coding_session = await CodingSession.load(config)
 
     # empty Stream reader buffer in memory not pointed to any fd yet
@@ -180,9 +175,13 @@ async def main():
                 )
                 continue
 
-            matched = session_manager.get_session_storage(rpc_request.session_id)
+            new_chat_session_manager = ChatSessionManager.search_session(
+                rpc_request.session_id,
+                cwd=config.chat_session_manager.cwd,
+            )
 
-            if matched is None:
+
+            if new_chat_session_manager is None:
                 send_response(
                     RpcErrorResponse(
                         request_type=RequestTypes.RESUME,
@@ -192,8 +191,7 @@ async def main():
                 )
                 continue
 
-            session_id, storage = matched
-            config.storage = storage
+            config.chat_session_manager = new_chat_session_manager
             coding_session = await CodingSession.load(config)
 
             send_response(
@@ -201,7 +199,7 @@ async def main():
                     request_type=RequestTypes.RESUME,
                     id=rpc_request.id,
                     data=SessionData(
-                        session_id=session_id,
+                        session_id=new_chat_session_manager.session_id,
                         messages=coding_session.harness.messages,
                     ),
                 )
@@ -226,7 +224,7 @@ async def main():
                         request_type=RequestTypes.REWIND,
                         id=rpc_request.id,
                         data=SessionData(
-                            session_id=session_id,
+                            session_id=config.chat_session_manager.session_id,
                             messages=messages,
                         ),
                     ),
@@ -251,7 +249,7 @@ async def main():
                 continue
 
             if rpc_request.type == RequestTypes.LIST_SESSIONS:
-                session_rows = session_manager.list_sessions()
+                session_rows = list_sessions()
                 send_response(
                     RpcPayloadResponse(
                         request_type=RequestTypes.LIST_SESSIONS,
@@ -268,14 +266,18 @@ async def main():
                     )
                 )
             elif rpc_request.type == RequestTypes.NEW_SESSION:
-                session_id, storage = session_manager.new_session_storage()
-                config.storage = storage
+                new_chat_session_manager = ChatSessionManager.new_session(
+                    cwd=config.chat_session_manager.cwd
+                )
+                config.chat_session_manager = new_chat_session_manager
                 coding_session = await CodingSession.load(config)
                 send_response(
                     RpcPayloadResponse(
                         request_type=RequestTypes.NEW_SESSION,
                         id=rpc_request.id,
-                        data=SessionData(session_id=session_id, messages=[]),
+                        data=SessionData(
+                            session_id=new_chat_session_manager.session_id, messages=[]
+                        ),
                     )
                 )
             elif rpc_request.type == RequestTypes.GET_REWIND_TARGETS:

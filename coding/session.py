@@ -6,23 +6,16 @@ from pydantic import BaseModel
 
 from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
-from ai.types import AIModel, AgentMessage, UserMessage
 from agent.provider import ModelProvider
-from agent.session.entries import (
-    CompactionEntry,
-    LeafEntry,
-    MessageEntry,
-    SessionEntry,
-    SessionInfoEntry,
-)
-from agent.session.state import SessionState
-from agent.session.storage import SessionStorage
-from agent.session.tree import entries_by_id
 from agent.tools import AgentTool
+from ai.types import AIModel, AgentMessage, UserMessage
 from coding.compaction import find_compaction_cut, generate_compaction_summary
-from coding.extensions.api import InputHookResult
 from coding.extensions.runtime import ExtensionRuntime
+from coding.extensions.api import InputHookResult
 from coding.tokens import estimate_context_tokens
+from coding.session_manager.entries import MessageEntry
+from coding.session_manager.manager import ChatSessionManager
+from coding.session_manager.traversal import entries_by_id
 
 
 @dataclass
@@ -30,19 +23,11 @@ class CodingSessionConfig:
     provider: ModelProvider
     model: AIModel
     system: str
-    storage: SessionStorage
+    chat_session_manager: ChatSessionManager
     tools: list[AgentTool] = field(default_factory=list)
     max_turns: int = 40
     auto_compact_threshold: int | None = None
     extension_runtime: ExtensionRuntime | None = None
-
-
-def _latest_leaf_entry(entries: list[SessionEntry]) -> LeafEntry | None:
-    for entry in reversed(entries):
-        if isinstance(entry, LeafEntry):
-            return entry
-
-    return
 
 
 class RewindTarget(BaseModel):
@@ -55,39 +40,17 @@ class CodingSession:
         self,
         config: CodingSessionConfig,
         harness: AgentHarness,
-        last_parent_id: str | None = None,
-        pending_initial_entry: SessionInfoEntry | None = None,
+        chat_session_manager: ChatSessionManager,
     ):
         self.config = config
         self.harness = harness
-        self.last_parent_id = last_parent_id
-        self.pending_initial_entry = pending_initial_entry
+        self.chat_session_manager = chat_session_manager
         self._persistence_unsubscribe = self.harness.subscribe(self._on_agent_event)
 
     @classmethod
     async def load(cls, config: CodingSessionConfig) -> "CodingSession":
-        entries = await config.storage.read_all()
-        last_parent_id: str | None = None
-        pending_initial_entry: SessionInfoEntry | None = None
-
-        if not entries:
-            info = SessionInfoEntry()
-            pending_initial_entry = info
-
-            leaf_id = None
-            last_parent_id = info.id
-        else:
-            latest_leaf = _latest_leaf_entry(entries)
-
-            if latest_leaf is not None:
-                leaf_id = latest_leaf.entry_id
-                last_parent_id = latest_leaf.entry_id
-            else:
-                # File Only has SessionInfoEntry, no messages yet
-                leaf_id = None
-                last_parent_id = entries[-1].id
-
-        state = SessionState.from_entries(entries, leaf_id=leaf_id)
+        chat_session_manager = config.chat_session_manager
+        context = chat_session_manager.build_session_context()
 
         effective_tools = list(config.tools)
 
@@ -106,13 +69,12 @@ class CodingSession:
             max_turns=config.max_turns,
         )
 
-        harness = AgentHarness(config=harness_config, messages=state.messages)
+        harness = AgentHarness(config=harness_config, messages=context.messages)
 
         return cls(
             config=config,
             harness=harness,
-            last_parent_id=last_parent_id,
-            pending_initial_entry=pending_initial_entry,
+            chat_session_manager=chat_session_manager,
         )
 
     def should_auto_compact(self) -> bool:
@@ -127,40 +89,13 @@ class CodingSession:
 
     async def _on_agent_event(self, event: AgentEvent):
         if isinstance(event, MessageEndEvent):
-            await self._persist_message(event.message)
-
-    async def _persist_message(self, message: AgentMessage):
-        if self.pending_initial_entry is not None:
-            await self.config.storage.append(self.pending_initial_entry)
-            self.pending_initial_entry = None
-
-        entry = MessageEntry(parent_id=self.last_parent_id, message=message)
-        await self.config.storage.append(entry)
-        self.last_parent_id = entry.id
-
-        leaf = LeafEntry(
-            parent_id=self.last_parent_id,
-            entry_id=self.last_parent_id,
-        )
-        await self.config.storage.append(leaf)
+            self.chat_session_manager.append_message(event.message)
 
     async def get_rewind_targets(self) -> list[RewindTarget]:
-        if self.last_parent_id is None:
+        if self.chat_session_manager.leaf_id is None:
             return []
 
-        # For now since AgentMessage dont carry entry ids
-        # and also compaction message is stored as User Message in
-        # self.harness.messages, we are reading entries again from storage
-
-        entries = await self.config.storage.read_all()
-
-        if not entries:
-            return []
-
-        rewind_entries = SessionState.get_rewind_entries(
-            entries,
-            self.last_parent_id,
-        )
+        rewind_entries = self.chat_session_manager.rewind_entries
 
         return [
             RewindTarget(
@@ -174,19 +109,10 @@ class CodingSession:
         if self.harness.is_running:
             raise RuntimeError("Cannot rewind while agent is running")
 
-        # Bit fragile as we are rereading again
-        if self.last_parent_id is None:
+        if self.chat_session_manager.leaf_id is None:
             return []
 
-        entries = await self.config.storage.read_all()
-
-        if not entries:
-            return []
-
-        rewind_entries = SessionState.get_rewind_entries(
-            entries,
-            self.last_parent_id,
-        )
+        rewind_entries = self.chat_session_manager.rewind_entries
 
         target_entry = entries_by_id(rewind_entries).get(entry_id, None)
 
@@ -194,19 +120,12 @@ class CodingSession:
             raise ValueError(f"Unknown session entry: {entry_id}")
 
         new_leaf_id = target_entry.parent_id
+        self.chat_session_manager.branch(new_leaf_id)
 
-        leaf = LeafEntry(
-            parent_id=new_leaf_id,
-            entry_id=new_leaf_id,
-        )
+        context = self.chat_session_manager.build_session_context()
+        self.harness.replace_messages(context.messages)
 
-        await self.config.storage.append(leaf)
-        self.last_parent_id = new_leaf_id
-
-        state = SessionState.from_entries(entries, leaf_id=new_leaf_id)
-        self.harness.replace_messages(state.messages)
-
-        return state.messages
+        return context.messages
 
     async def prompt(
         self,
@@ -266,24 +185,17 @@ class CodingSession:
             custom_instructions=custom_instructions,
         )
 
-        if self.pending_initial_entry is not None:
-            await self.config.storage.append(self.pending_initial_entry)
-            self.pending_initial_entry = None
+        active_branch = self.chat_session_manager.get_active_branch()
+        message_entries = [e for e in active_branch if isinstance(e, MessageEntry)]
 
-        compaction_entry = CompactionEntry(
-            parent_id=self.last_parent_id,
+        if cut >= len(message_entries):
+            raise ValueError(f"Invalid compaction cut")
+
+        first_kept_entry_id = message_entries[cut].id
+        self.chat_session_manager.append_compaction(
             summary=summary,
-            retained_tail=retained_tail,
+            first_kept_entry_id=first_kept_entry_id,
         )
-
-        await self.config.storage.append(compaction_entry)
-        self.last_parent_id = compaction_entry.id
-
-        leaf = LeafEntry(
-            parent_id=self.last_parent_id,
-            entry_id=self.last_parent_id,
-        )
-        await self.config.storage.append(leaf)
 
         summary_msg = UserMessage(
             content=f"Previously conversation summary: \n{summary}"

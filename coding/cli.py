@@ -16,7 +16,7 @@ from coding.command_factory import build_command_registry
 from coding.commands import CommandRegistry, CommandResult
 from coding.session_factory import build_session_config
 from coding.session import CodingSession
-from coding.chat_session_manager import ChatSessionManager
+from coding.session_manager.manager import ChatSessionManager, list_sessions
 
 
 def clear_screen():
@@ -43,10 +43,9 @@ def print_session_history(messages: list[AgentMessage]):
 
 
 async def main():
-    session_manager = ChatSessionManager()
-    session_id, storage = session_manager.new_session_storage()
-
-    config = await build_session_config(storage=storage)
+    config = await build_session_config(
+        chat_session_manager=ChatSessionManager.new_session()
+    )
 
     coding_session = await CodingSession.load(config)
     command_registry: CommandRegistry = build_command_registry(
@@ -54,7 +53,7 @@ async def main():
     )
 
     print(
-        f"Mini Pi started with model '{config.model.name}'. Session: {session_id}.\n",
+        f"Mini Pi started with model '{config.model.name}'. Session: {config.chat_session_manager.session_id}.\n",
         flush=True,
     )
 
@@ -78,22 +77,30 @@ async def main():
                 break
 
             if command_result.action.action == "clear":
-                session_id, storage = session_manager.new_session_storage()
-                config.storage = storage
+                new_chat_session_manager = ChatSessionManager.new_session(
+                    cwd=config.chat_session_manager.cwd
+                )
+                config.chat_session_manager = new_chat_session_manager
                 coding_session = await CodingSession.load(config)
                 clear_screen()
-                print(f"\nStarting new session: {session_id}\n", flush=True)
+                print(
+                    f"\nStarting new session: {config.chat_session_manager.session_id}\n",
+                    flush=True,
+                )
                 continue
 
             if command_result.action.action == "session":
-                print(f"Active session: {session_id}", flush=True)
+                print(
+                    f"Active session: {config.chat_session_manager.session_id}",
+                    flush=True,
+                )
                 continue
 
             if command_result.action.action == "resume":
                 args = command_result.action.args
 
                 if not args:
-                    session_rows = session_manager.list_sessions()
+                    session_rows = list_sessions()
                     print("\nAvaliable Sessions:")
                     for s in session_rows:
                         print(
@@ -104,17 +111,18 @@ async def main():
                     print("Use `/resume <id>` to switch\n")
                     continue
 
-                matched = session_manager.get_session_storage(args)
-                if matched is None:
+                new_chat_session_manager = ChatSessionManager.search_session(
+                    args, cwd=config.chat_session_manager.cwd
+                )
+                if new_chat_session_manager is None:
                     print(f"No session with '{args}'", flush=True)
                     continue
 
-                session_id, storage = matched
-                config.storage = storage
+                config.chat_session_manager = new_chat_session_manager
                 coding_session = await CodingSession.load(config)
                 clear_screen()
                 print(
-                    f"\nResuming session: {session_id} with {len(coding_session.harness.messages)} messages\n",
+                    f"\nResuming session: {new_chat_session_manager.session_id} with {len(coding_session.harness.messages)} messages\n",
                     flush=True,
                 )
                 print_session_history(coding_session.harness.messages)

@@ -2,12 +2,13 @@
 # uv venv /tmp/test-mini-pi-311 --python 3.11 && \
 # uv pip install -r requirements.txt --python /tmp/test-mini-pi-311/bin/python && \
 # PYTHONPATH=. /tmp/test-mini-pi-311/bin/python -c "
-# import agent.messages
-# import agent.loop
+# import ai
+# import agent
+# import coding
 # import agent.harness
-# import ai.openai
+# import ai.api.openai_completions.client
 # import coding.session
-# import coding.headless
+# import coding.rpc
 # import coding.tools
 # import coding.cli
 # print('SUCCESS: Python 3.11 import check passed.')

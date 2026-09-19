@@ -1,12 +1,12 @@
 # RPC Requests (stdin from node to python)
 
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
 from ai.types import AgentMessage
-from coding.chat_session_manager import ChatSessionFileMetadata
+from coding.session_manager.manager import ChatSessionFileMetadata
 from coding.session import RewindTarget
 
 
