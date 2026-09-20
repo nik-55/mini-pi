@@ -52,13 +52,18 @@ class CodingSession:
         chat_session_manager = config.chat_session_manager
         context = chat_session_manager.build_session_context()
 
-        effective_tools = list(config.tools)
+        effective_tools = config.tools
+        tool_map = {t.name: t for t in effective_tools}
 
         if config.extension_runtime is not None:
-            effective_tools.extend(config.extension_runtime.get_all_tools())
+            extension_tools = config.extension_runtime.get_all_tools()
+
+            for ext_tool in extension_tools:
+                # Extension can override inbuilt tools
+                tool_map[ext_tool.name] = ext_tool
 
             effective_tools = [
-                config.extension_runtime.wrap_tool(t) for t in effective_tools
+                config.extension_runtime.wrap_tool(t) for t in tool_map.values()
             ]
 
         harness_config = AgentHarnessConfig(

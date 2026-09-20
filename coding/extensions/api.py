@@ -1,5 +1,5 @@
-from collections.abc import Callable
-from typing import Any, Awaitable, Literal
+from collections.abc import Callable, Awaitable
+from typing import Any, Literal
 
 from pydantic import BaseModel
 

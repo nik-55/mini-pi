@@ -43,10 +43,10 @@ async def build_session_config(
     )
 
     tools = [
-        create_bash_tool(),
-        create_read_tool(),
-        create_write_tool(),
-        create_edit_tool(),
+        create_bash_tool(str(cwd)),
+        create_read_tool(str(cwd)),
+        create_write_tool(str(cwd)),
+        create_edit_tool(str(cwd)),
     ]
 
     extension_runtime = ExtensionRuntime()
