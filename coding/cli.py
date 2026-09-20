@@ -14,6 +14,7 @@ from ai.types import (
 
 from coding.command_factory import build_command_registry
 from coding.commands import CommandRegistry, CommandResult
+from coding.extensions.types import ExtensionUIContext
 from coding.session_factory import build_session_config
 from coding.session import CodingSession
 from coding.session_manager.manager import ChatSessionManager, list_sessions
@@ -42,12 +43,43 @@ def print_session_history(messages: list[AgentMessage]):
             print(f"[Tool output {msg.tool_name}: {snippet.strip()}]\n")
 
 
+class CliExtensionUI(ExtensionUIContext):
+    async def select(self, title: str, options: list[str]) -> str | None:
+        print(f"\n{title}", flush=True)
+
+        for idx, opt in enumerate(options, start=1):
+            print(f" {idx}. {opt}", flush=True)
+
+        try:
+            choice = input(f"Select [1-{len(options)}]: ").strip()
+            choice = choice.strip()
+
+            if not choice:
+                return
+
+            if choice.isdigit():
+                num = int(choice)
+
+                if 1 <= num <= len(options):
+                    return options[num - 1]
+
+            return
+        except (KeyboardInterrupt, EOFError):
+            return
+
+    def notify(self, message: str, level: str = "info") -> None:
+        print(f"\n[{level.upper()}] {message}", flush=True)
+
+
 async def main():
     config = await build_session_config(
         chat_session_manager=ChatSessionManager.new_session()
     )
 
+    # TODO: Should we set context UI directly by assigning?
+    config.extension_runtime.context.ui = CliExtensionUI()
     coding_session = await CodingSession.load(config)
+
     command_registry: CommandRegistry = build_command_registry(
         extension_runtime=config.extension_runtime
     )

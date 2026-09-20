@@ -11,7 +11,7 @@ from agent.tools import AgentTool
 from ai.types import AIModel, AgentMessage, UserMessage
 from coding.compaction import find_compaction_cut, generate_compaction_summary
 from coding.extensions.runtime import ExtensionRuntime
-from coding.extensions.api import InputHookResult
+from coding.extensions.types import InputHookResult
 from coding.tokens import estimate_context_tokens
 from coding.session_manager.entries import MessageEntry
 from coding.session_manager.manager import ChatSessionManager
@@ -145,11 +145,10 @@ class CodingSession:
             )
 
             if input_result_hook.action == "handled":
-                print(f"\n[Intercepted by hook]: {input_result_hook.reply}\n")
                 return
 
             if (
-                input_result_hook.action == "continue"
+                input_result_hook.action == "transform"
                 and input_result_hook.text is not None
             ):
                 effective_content = input_result_hook.text

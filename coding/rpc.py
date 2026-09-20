@@ -1,9 +1,11 @@
 import asyncio
 import json
 import sys
+import uuid
 
 from dotenv import load_dotenv
 
+from coding.extensions.types import ExtensionUIContext
 from coding.session_manager.manager import ChatSessionManager, list_sessions
 from coding.rpc_types import (
     CompactData,
@@ -22,6 +24,10 @@ from coding.rpc_types import (
     SessionListData,
     SessionState,
     rpc_request_adapter,
+    ExtensionUIRequest,
+    ExtensionUIResponse,
+    NotifyUIRequestPayload,
+    SelectUIRequestPayload,
 )
 from coding.session import CodingSession
 from coding.session_factory import build_session_config
@@ -46,8 +52,53 @@ def send_response(resp: RpcResponse):
     emit(resp.model_dump(mode="json"))
 
 
+class RpcExtensionUI(ExtensionUIContext):
+    def __init__(
+        self,
+        pending_ui_tasks: dict[str, asyncio.Future[ExtensionUIResponse]],
+    ):
+        self.pending_ui_tasks = pending_ui_tasks
+
+    async def select(self, title: str, options: list[str]) -> str | None:
+        req = ExtensionUIRequest(
+            id=uuid.uuid4().hex[:6],
+            payload=SelectUIRequestPayload(title=title, options=options),
+        )
+
+        future: asyncio.Future[ExtensionUIResponse] = (
+            asyncio.get_event_loop().create_future()
+        )
+
+        self.pending_ui_tasks[req.id] = future
+
+        emit(req.model_dump(mode="json"))
+
+        try:
+            resp = await future
+        finally:
+            self.pending_ui_tasks.pop(req.id, None)
+
+        if resp.cancelled:
+            return
+
+        return resp.value
+
+    def notify(self, message: str, level: str = "info") -> None:
+        req = ExtensionUIRequest(
+            id=uuid.uuid4().hex[:6],
+            payload=NotifyUIRequestPayload(message=message, notify_type=level),
+        )
+
+        emit(req.model_dump(mode="json"))
+
+
 async def main():
-    config = await build_session_config(chat_session_manager=ChatSessionManager.new_session())
+    config = await build_session_config(
+        chat_session_manager=ChatSessionManager.new_session()
+    )
+    pending_ui_tasks: dict[str, asyncio.Future[ExtensionUIResponse]] = {}
+    config.extension_runtime.context.ui = RpcExtensionUI(pending_ui_tasks)
+
     coding_session = await CodingSession.load(config)
 
     # empty Stream reader buffer in memory not pointed to any fd yet
@@ -77,6 +128,23 @@ async def main():
                     error=f"Invalid json: {exc}",
                 )
             )
+            continue
+
+        # Check if it is extension UI response
+        if (
+            isinstance(rpc_client_msg, dict)
+            and rpc_client_msg.get("type") == "extension_ui_response"
+        ):
+            try:
+                extension_ui_res = ExtensionUIResponse.model_validate(rpc_client_msg)
+
+                pending_future = pending_ui_tasks.get(extension_ui_res.id)
+
+                if pending_future is not None and not pending_future.done():
+                    pending_future.set_result(extension_ui_res)
+            except Exception as exc:
+                pass
+
             continue
 
         try:
@@ -179,7 +247,6 @@ async def main():
                 rpc_request.session_id,
                 cwd=config.chat_session_manager.cwd,
             )
-
 
             if new_chat_session_manager is None:
                 send_response(

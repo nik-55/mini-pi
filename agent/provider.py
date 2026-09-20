@@ -1,4 +1,4 @@
-import abc
+from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
 from agent.cancellation import CancellationSignal
@@ -7,7 +7,8 @@ from agent.tools import AgentTool
 from ai.types import AIModel, AgentMessage
 
 
-class ModelProvider(abc.ABC):
+class ModelProvider(ABC):
+    @abstractmethod
     def stream_response(
         self,
         *,

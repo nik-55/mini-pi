@@ -27,26 +27,40 @@ class BashOperations:
     ]
 
 
+def is_sandbox_available() -> bool:
+    return shutil.which("bwrap") is not None
+
+
 async def _default_exec(
     command: str,
     cwd: str,
     timeout: float,
     signal: CancellationSignal | None,
 ) -> ExecResult:
-    if shutil.which("bwrap") is None:
-        raise ToolError("Bash is not available")
+    # If sandbox available wrap command with sandbox otherwise proceed without sandbox
+    # Permission gate is expected to handle non sandbox execution
+    cwd = Path(cwd).resolve()
 
-    argv = bwrap_argv(
-        home=Path.home(),
-        workspace=Path(cwd).resolve(),
-        command=command,
-    )
+    if is_sandbox_available():
+        argv = bwrap_argv(
+            home=Path.home(),
+            workspace=cwd,
+            command=command,
+        )
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    else:
+        argv = ["/bin/bash", "-c", command]
 
-    process = await asyncio.create_subprocess_exec(
-        *argv,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
 
     communication_task = asyncio.create_task(process.communicate())
     cancel_signal_task = asyncio.create_task(signal.wait()) if signal else None

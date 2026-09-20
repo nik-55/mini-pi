@@ -1,7 +1,7 @@
 import { ChildProcess, spawn } from "node:child_process";
 import readline from "node:readline";
 import type { AgentEvent } from "./types/events.js";
-import type { CompactData, RewindTargetsData, RpcRequest, RpcResponse, SessionData, SessionListData, SessionState } from "./types/rpc.js";
+import type { CompactData, ExtensionUIRequest, ExtensionUIResponse, RewindTargetsData, RpcRequest, RpcResponse, SessionData, SessionListData, SessionState } from "./types/rpc.js";
 
 function getPythonBin(): string {
     const project_root_dir_path = new URL("../../..", import.meta.url).pathname;
@@ -17,6 +17,7 @@ export class RpcClient {
     private requestId = 0;
     private pendingRequests = new Map<string, { resolve: (resp: RpcResponse) => void; reject: (err: Error) => void }>();
     private eventListeners: Array<(event: AgentEvent) => void> = [];
+    private extensionUIListeners: Array<(req: ExtensionUIRequest) => Promise<void>> = [];
     private rl: readline.Interface;
 
     constructor() {
@@ -51,7 +52,22 @@ export class RpcClient {
 
     private handleLine(line: string): void {
         try {
-            const parsed = JSON.parse(line) as (RpcResponse | AgentEvent);
+            const parsed = JSON.parse(line) as (RpcResponse | AgentEvent | ExtensionUIRequest);
+
+            // Check for requests from rpc_server
+            if (parsed.type == "extension_ui_request") {
+                for (const l of this.extensionUIListeners) {
+                    // Calling listener will start the execution of listener synchronously
+                    // until it hit await where it save rest of listener into queue for picker
+                    // to resolve and continues to handleLine
+                    // In python call async function just create coroutine object but 
+                    // does not start the execution
+                    // While in js, it do start the execution
+                    l(parsed as ExtensionUIRequest);
+                }
+                return;
+            }
+
             if (parsed.type == "response") {
                 if (parsed.id && this.pendingRequests.has(parsed.id)) {
                     const pending = this.pendingRequests.get(parsed.id)!;
@@ -70,7 +86,7 @@ export class RpcClient {
         }
     }
 
-    async send<T>(request: RpcRequest): Promise<T> {
+    private async send<T>(request: RpcRequest): Promise<T> {
         const stdin = this.process.stdin;
 
         const id = `req_${++this.requestId}`;
@@ -103,6 +119,10 @@ export class RpcClient {
         });
     }
 
+    public sendExtensionUIResponse(resp: ExtensionUIResponse): void {
+        this.process.stdin?.write(JSON.stringify(resp) + "\n");
+    }
+
     public onEvent(handler: (event: AgentEvent) => void): () => void {
         this.eventListeners.push(handler);
         const unsubscribe = () => {
@@ -110,6 +130,15 @@ export class RpcClient {
         }
 
         return unsubscribe;
+    }
+
+    public onExtensionUIRequest(handler: (req: ExtensionUIRequest) => Promise<void>): () => void {
+        this.extensionUIListeners.push(handler);
+        const unsubscribe = () => {
+            this.extensionUIListeners = this.extensionUIListeners.filter((l) => l != handler);
+        }
+
+        return unsubscribe
     }
 
     public onExit(handler: () => void): void {

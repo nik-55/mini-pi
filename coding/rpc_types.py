@@ -1,5 +1,3 @@
-# RPC Requests (stdin from node to python)
-
 from enum import StrEnum
 from typing import Annotated, Literal
 
@@ -24,6 +22,9 @@ class RequestTypes(StrEnum):
     LIST_SESSIONS = "list_sessions"
     GET_REWIND_TARGETS = "get_rewind_targets"
     GET_COMMANDS = "get_commands"
+
+
+# RPC Requests (request from rpc_client to rpc_server)
 
 
 class BaseRequest(BaseModel):
@@ -70,6 +71,7 @@ RpcRequest = Annotated[
 rpc_request_adapter: TypeAdapter[RpcRequest] = TypeAdapter(RpcRequest)
 
 # Response Payload
+# Payload of the response to RPC Requests
 # TODO: Ig we can move most of them in there respective files
 
 
@@ -96,7 +98,7 @@ class CompactData(BaseModel):
     response: str
 
 
-# RPC Responses (stdout from python to node)
+# RPC Responses (response of RPC requests from rpc_server to rpc_client)
 
 
 class BaseRpcResponse(BaseModel):
@@ -111,6 +113,10 @@ class BaseRpcSuccessResponse(BaseRpcResponse):
 
 
 # Response with no payload
+
+# TODO: request_type is not used anywhere
+
+
 class EmptySuccessResponse(BaseRpcSuccessResponse):
     request_type: Literal[
         RequestTypes.PROMPT,
@@ -140,3 +146,42 @@ class RpcErrorResponse(BaseRpcResponse):
 
 
 RpcResponse = EmptySuccessResponse | RpcPayloadResponse | RpcErrorResponse
+
+
+# Extension UI Request
+# When an extension wants user input, it send request to UI
+# It means request from rpc_server to rpc_client
+
+
+# Request Payload
+class SelectUIRequestPayload(BaseModel):
+    method: Literal["select"] = "select"
+    title: str
+    options: list[str]
+
+
+class NotifyUIRequestPayload(BaseModel):
+    method: Literal["notify"] = "notify"
+    message: str
+    notify_type: Literal["info", "warning", "error"] = "info"
+
+
+UIRequestPayload = Annotated[
+    SelectUIRequestPayload | NotifyUIRequestPayload,
+    Field(discriminator="method"),
+]
+
+
+# Request
+class ExtensionUIRequest(BaseModel):
+    type: Literal["extension_ui_request"] = "extension_ui_request"
+    id: str
+    payload: UIRequestPayload
+
+
+# Response
+class ExtensionUIResponse(BaseModel):
+    type: Literal["extension_ui_response"] = "extension_ui_response"
+    id: str
+    value: str | None = None
+    cancelled: bool = False

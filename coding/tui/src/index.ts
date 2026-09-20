@@ -21,6 +21,7 @@ import { ActivityLoader } from "./loader.js";
 import { TUIHeader } from "./header.js";
 import { PickerComponent, type PickerOptions } from "./component.js";
 import { RpcClient } from "./rpc_client.js";
+import type { ExtensionUIRequest } from "./types/rpc.js";
 
 // UI Setup
 const terminal = new ProcessTerminal();
@@ -266,16 +267,16 @@ function submitInput(text: string, isFollowup: boolean = false) {
         return;
     }
 
-    activityLoader.start("working...")
     trajectory.addText(`> ${text}`, cyan_color_wrapper);
     (async () => {
         try {
             await agent.prompt(text);
         } catch (err) {
+            activityLoader.stop();
+            busy = false;
             trajectory.addText(`Error sending prompt: ${err}`);
         }
     })();
-    busy = true;
 }
 
 // Input Handling
@@ -351,6 +352,7 @@ function handle_coding_agent_event(event: AgentEvent) {
     switch (event.type) {
         case "agent_start": {
             busy = true;
+            activityLoader.start("working...")
             break;
         }
 
@@ -396,6 +398,35 @@ function handle_coding_agent_event(event: AgentEvent) {
 }
 
 agent.onEvent(handle_coding_agent_event);
+
+agent.onExtensionUIRequest(async (req: ExtensionUIRequest) => {
+    if (req.payload.method == "select") {
+        const selected = await showPicker({
+            title: req.payload.title,
+            items: req.payload.options.map((opt) => ({
+                value: opt,
+                label: opt,
+            }))
+        });
+
+        if (selected) {
+            agent.sendExtensionUIResponse({
+                type: "extension_ui_response",
+                id: req.id,
+                value: selected.value,
+            });
+        } else {
+            agent.sendExtensionUIResponse({
+                type: "extension_ui_response",
+                id: req.id,
+                cancelled: true,
+            });
+        }
+    }
+    else if (req.payload.method == "notify") {
+        trajectory.addText(`[${req.payload.notify_type.toUpperCase()}] ${req.payload.message}`, dim_color_wrapper);
+    }
+});
 
 const slashCommands: SlashCommand[] = [
     {

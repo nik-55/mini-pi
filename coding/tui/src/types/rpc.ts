@@ -100,3 +100,33 @@ export interface RpcErrorResponse {
 };
 
 export type RpcResponse = RpcSuccessResponse | RpcErrorResponse;
+
+
+// Extension UI requests payload
+
+export interface SelectUIRequestPayload {
+    method: "select",
+    title: string;
+    options: string[];
+}
+
+export interface NotifyUIRequestPayload {
+    method: "notify",
+    message: string;
+    notify_type: "info" | "warning" | "error";
+}
+
+// Extension UI requests
+export interface ExtensionUIRequest {
+    type: "extension_ui_request";
+    id: string;
+    payload: SelectUIRequestPayload | NotifyUIRequestPayload;
+}
+
+// Extension UI Response
+export interface ExtensionUIResponse {
+    type: "extension_ui_response";
+    id: string;
+    value?: string;
+    cancelled?: boolean;
+}

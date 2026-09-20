@@ -9,6 +9,7 @@ from coding.context import (
     format_project_context,
     format_skills,
 )
+from coding.extensions.types import ExtensionContext
 from coding.extensions.loader import load_extensions_from_dir
 from coding.extensions.runtime import ExtensionRuntime
 from coding.session import CodingSessionConfig
@@ -49,7 +50,7 @@ async def build_session_config(
         create_edit_tool(str(cwd)),
     ]
 
-    extension_runtime = ExtensionRuntime()
+    extension_runtime = ExtensionRuntime(context=ExtensionContext(cwd=cwd))
 
     # Load default extension present in mini pi
     in_repo_bundled_dir = Path(__file__).parent.parent / "extensions"
