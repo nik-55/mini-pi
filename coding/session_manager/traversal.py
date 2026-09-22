@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
-from ai.types import AgentMessage, ThinkingLevel, UserMessage
+from ai.types import ThinkingLevel, UserMessage
+from coding.messages import CompactionSummaryMessage, SessionMessage
 from coding.session_manager.entries import (
     MessageEntry,
     ModelChangeEntry,
@@ -56,10 +57,23 @@ def branch_by_leaf_id(
 
 @dataclass
 class SessionContext:
-    messages: list[AgentMessage]
+    messages: list[SessionMessage]
+    messages_entries: list[
+        SessionEntry
+    ]  # Same list as messages (i.e message corresponding entry)
     model_ref: str | None = None
     thinking_level: ThinkingLevel | None = None
     session_metadata: SessionMetaDataEntry | None = None
+
+
+def entry_to_message(entry: SessionEntry) -> SessionMessage | None:
+    if isinstance(entry, MessageEntry):
+        return entry.message
+
+    if isinstance(entry, CompactionEntry):
+        return CompactionSummaryMessage(summary=entry.summary)
+
+    return
 
 
 def build_session_context(
@@ -68,7 +82,7 @@ def build_session_context(
 ) -> SessionContext:
     branch = branch_by_leaf_id(entries, leaf_id)
 
-    messages: list[AgentMessage] = []
+    messages_entries: list[SessionEntry] = []
     latest_compaction_index: int | None = None
 
     # Traverse branch backwards
@@ -79,10 +93,7 @@ def build_session_context(
 
     if latest_compaction_index is not None:
         compaction_entry: CompactionEntry = branch[latest_compaction_index]
-        summary_msg = UserMessage(
-            content=f"Previously conversation summary: \n{compaction_entry.summary}"
-        )
-        messages.append(summary_msg)
+        messages_entries.append(compaction_entry)
 
         # Message from first_kept_entry_id to compaction entry
         found_first_kept_entry = False
@@ -93,7 +104,7 @@ def build_session_context(
                 found_first_kept_entry = True
 
             if found_first_kept_entry and isinstance(entry, MessageEntry):
-                messages.append(entry.message)
+                messages_entries.append(entry)
 
         tail_entries = branch[latest_compaction_index + 1 :]
     else:
@@ -101,7 +112,17 @@ def build_session_context(
 
     for entry in tail_entries:
         if isinstance(entry, MessageEntry):
-            messages.append(entry.message)
+            messages_entries.append(entry)
+
+    messages: list[SessionMessage] = []
+    for entry in messages_entries:
+        message = entry_to_message(entry)
+
+        # message should not be None as message_entries formed with entry that do carry message
+        if message is None:
+            raise ValueError(f"{entry} has no corresponding message")
+
+        messages.append(message)
 
     session_metadata: SessionMetaDataEntry | None = None
     model_ref: str | None = None
@@ -120,6 +141,7 @@ def build_session_context(
         model_ref=model_ref,
         thinking_level=thinking_level,
         messages=messages,
+        messages_entries=messages_entries,
     )
 
 

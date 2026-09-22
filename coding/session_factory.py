@@ -20,6 +20,7 @@ from coding.tools import (
     create_bash_tool,
     create_write_tool,
 )
+from coding.compaction.types import CompactionSettings
 
 DEFAULT_SYSTEM_PROMPT = """
 You are helpful assistant. You have access to user filesystem.
@@ -84,7 +85,7 @@ async def build_session_config(
         system=dynamic_system_prompt,
         tools=tools,
         chat_session_manager=chat_session_manager,
-        auto_compact_threshold=50_000,
+        compaction_settings=CompactionSettings(),  # use default
         extension_runtime=extension_runtime,
     )
 

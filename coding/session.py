@@ -4,16 +4,34 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from agent.cancellation import CancellationSignal
 from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
 from agent.provider import ModelProvider
 from agent.tools import AgentTool
-from ai.types import AIModel, AgentMessage, UserMessage
-from coding.compaction import find_compaction_cut, generate_compaction_summary
+from ai.types import AIModel, AssistantMessage
+from coding.compaction.compaction import (
+    format_file_operations,
+    generate_compaction_summary,
+)
+from coding.compaction.types import CompactionSettings
+from coding.compaction.prepare import check_compaction_threshold, prepare_compaction
+from coding.compaction.tokens import (
+    estimate_context_tokens,
+    estimate_message_tokens,
+    extract_usage_tokens,
+)
 from coding.extensions.runtime import ExtensionRuntime
 from coding.extensions.types import InputHookResult
-from coding.tokens import estimate_context_tokens
-from coding.session_manager.entries import MessageEntry
+from coding.events import (
+    CompactionReason,
+    CompactionEvent,
+    CompactionStartEvent,
+    CompactionEndEvent,
+    SessionEvent,
+)
+from coding.messages import SessionMessage, convert_message_to_llm_compatible
+from coding.session_manager.entries import CompactionEntry, MessageEntry
 from coding.session_manager.manager import ChatSessionManager
 from coding.session_manager.traversal import entries_by_id
 
@@ -24,9 +42,9 @@ class CodingSessionConfig:
     model: AIModel
     system: str
     chat_session_manager: ChatSessionManager
+    compaction_settings: CompactionSettings
     tools: list[AgentTool] = field(default_factory=list)
     max_turns: int = 40
-    auto_compact_threshold: int | None = None
     extension_runtime: ExtensionRuntime | None = None
 
 
@@ -45,7 +63,15 @@ class CodingSession:
         self.config = config
         self.harness = harness
         self.chat_session_manager = chat_session_manager
-        self._persistence_unsubscribe = self.harness.subscribe(self._on_agent_event)
+        self.harness.subscribe(
+            self._on_agent_event
+        )  # It returns unsubscribe function currently not used
+        # self._listerners: list[Callable[[SessionEvent], Any]] = []
+        self._compaction_signal: CancellationSignal | None = None
+
+    @property
+    def is_compacting(self) -> bool:
+        return self._compaction_signal is not None
 
     @classmethod
     async def load(cls, config: CodingSessionConfig) -> "CodingSession":
@@ -72,6 +98,7 @@ class CodingSession:
             system=config.system,
             tools=effective_tools,
             max_turns=config.max_turns,
+            convert_message_to_llm_compatible=convert_message_to_llm_compatible,
         )
 
         harness = AgentHarness(config=harness_config, messages=context.messages)
@@ -82,19 +109,78 @@ class CodingSession:
             chat_session_manager=chat_session_manager,
         )
 
+    # def subscribe(self, listener: Callable[[SessionEvent], Any]) -> Callable[[], None]:
+    #     self._listerners.append(listener)
+
+    #     def unsubscribe() -> None:
+    #         try:
+    #             self._listerners.remove(listener)
+    #         except ValueError:
+    #             pass
+
+    #     return unsubscribe
+
+    # async def _notify(self, event: SessionEvent):
+    #     snapshot_listeners = list(self._listerners)
+
+    #     for listerner in snapshot_listeners:
+    #         result = listerner(event)
+
+    #         if inspect.isawaitable(result):
+    #             await result
+
+    def _is_usage_stale(self) -> bool:
+        # Whether usage is stale
+        # When compaction happens with tail messages, then those tail assitant message report usage
+        # that is stale after compaction.
+        # Check whether any new assistant message land after compaction otherwise mark the usage stale
+
+        # walk backward
+        # If CompactionEntry found first -> usage is stale
+        # If assistant message and valid usage can be extracted -> usage is valid
+        # TODO: why we call get_active_branch at different places
+
+        for entry in reversed(self.chat_session_manager.get_active_branch()):
+            if isinstance(entry, CompactionEntry):
+                return True
+
+            if (
+                isinstance(entry, MessageEntry)
+                and isinstance(entry.message, AssistantMessage)
+                and extract_usage_tokens(entry.message) is not None
+            ):
+                return False
+
+        return False
+
+    def _last_assistant_message(self) -> AssistantMessage | None:
+        for m in reversed(self.harness.messages):
+            if isinstance(m, AssistantMessage):
+                return m
+        return
+
     def should_auto_compact(self) -> bool:
-        if self.config.auto_compact_threshold is None:
+        settings = self.config.compaction_settings
+
+        if not settings.enabled:
             return False
 
-        if len(self.harness.messages) < 2:
-            return False
+        if self._is_usage_stale():
+            tokens = sum(estimate_message_tokens(m) for m in self.harness.messages)
+        else:
+            tokens = estimate_context_tokens(self.harness.messages)
 
-        tokens = estimate_context_tokens(self.harness.messages)
-        return tokens > self.config.auto_compact_threshold
+        return check_compaction_threshold(
+            context_tokens=tokens,
+            context_window=self.config.model.context_window,
+            settings=self.config.compaction_settings,
+        )
 
     async def _on_agent_event(self, event: AgentEvent):
         if isinstance(event, MessageEndEvent):
             self.chat_session_manager.append_message(event.message)
+
+        # await self._notify(event)
 
     async def get_rewind_targets(self) -> list[RewindTarget]:
         if self.chat_session_manager.leaf_id is None:
@@ -110,9 +196,9 @@ class CodingSession:
             for e in reversed(rewind_entries)
         ]
 
-    async def rewind_to(self, entry_id: str) -> list[AgentMessage]:
-        if self.harness.is_running:
-            raise RuntimeError("Cannot rewind while agent is running")
+    async def rewind_to(self, entry_id: str) -> list[SessionMessage]:
+        if self.harness.is_running or self.is_compacting:
+            raise RuntimeError("Cannot rewind while another request is running")
 
         if self.chat_session_manager.leaf_id is None:
             return []
@@ -136,7 +222,7 @@ class CodingSession:
         self,
         content: str,
         streaming_behaviour: Literal["steer", "follow_up"] | None = None,
-    ) -> AsyncIterator[AgentEvent]:
+    ) -> AsyncIterator[SessionEvent]:
         effective_content = content
 
         if self.config.extension_runtime is not None:
@@ -153,6 +239,10 @@ class CodingSession:
             ):
                 effective_content = input_result_hook.text
 
+        if self.is_compacting:
+            # TODO: we need to inform subscriber that compacting is in progress
+            return
+
         if self.harness.is_running:
             streaming_behaviour = streaming_behaviour or "steer"
 
@@ -163,50 +253,85 @@ class CodingSession:
 
             return
 
+        # Before sending prompt to llm
         if self.should_auto_compact():
-            print(
-                f"\n[Auto compaction triggered: context exceeded {self.config.auto_compact_threshold} tokens]\n",
-                flush=True,
-            )
-            await self.compact()
+            async for event in self.compact(reason="threshold"):
+                yield event
 
         async for event in self.harness.prompt(effective_content):
             yield event
 
-    async def compact(self, custom_instructions: str | None = None) -> str:
-        cut = find_compaction_cut(self.harness.messages)
+        # After the run
+        last = self._last_assistant_message()
 
-        if cut is None:
-            return "Not enough context to compact"
+        if last and last.stop_reason != "aborted" and self.should_auto_compact():
+            async for event in self.compact(reason="threshold"):
+                yield event
 
-        messages_to_summarize = self.harness.messages[:cut]
-        retained_tail = self.harness.messages[cut:]
+    async def compact(
+        self,
+        reason: CompactionReason,
+        custom_instructions: str | None = None,
+    ) -> AsyncIterator[CompactionEvent]:
+        if self.harness.is_running or self.is_compacting:
+            # TODO
+            return
 
-        summary = await generate_compaction_summary(
-            provider=self.config.provider,
-            model=self.config.model,
-            messages_to_summarize=messages_to_summarize,
-            custom_instructions=custom_instructions,
-        )
+        yield CompactionStartEvent(reason=reason)
 
-        active_branch = self.chat_session_manager.get_active_branch()
-        message_entries = [e for e in active_branch if isinstance(e, MessageEntry)]
+        signal = CancellationSignal()
+        self._compaction_signal = signal
 
-        if cut >= len(message_entries):
-            raise ValueError(f"Invalid compaction cut")
+        try:
+            context = self.chat_session_manager.build_session_context()
+            preparation = prepare_compaction(
+                context.messages_entries,
+                self.config.compaction_settings,
+            )
 
-        first_kept_entry_id = message_entries[cut].id
-        self.chat_session_manager.append_compaction(
-            summary=summary,
-            first_kept_entry_id=first_kept_entry_id,
-        )
+            if preparation is None:
+                # TODO
+                yield CompactionEndEvent(error_message="Unable to find valid cut point")
+                return
 
-        summary_msg = UserMessage(
-            content=f"Previously conversation summary: \n{summary}"
-        )
-        self.harness.replace_messages([summary_msg, *retained_tail])
+            summary = await generate_compaction_summary(
+                provider=self.config.provider,
+                model=self.config.model,
+                messages_to_summarize=preparation.messages_to_summarize,
+                previous_summary=preparation.previous_summary,
+                custom_instructions=custom_instructions,
+                signal=signal,
+            )
 
-        return f"Compacted {len(messages_to_summarize)} messages"
+            if signal.is_cancelled():
+                yield CompactionEndEvent(error_message="Compaction Cancelled")
+                return
+
+            file_operations_str = format_file_operations(
+                preparation.messages_to_summarize
+            )
+
+            if file_operations_str:
+                summary += "\n\n" + file_operations_str
+
+            self.chat_session_manager.append_compaction(
+                summary=summary,
+                first_kept_entry_id=preparation.first_kept_entry_id,
+            )
+
+            context = self.chat_session_manager.build_session_context()
+            self.harness.replace_messages(context.messages)
+
+            yield CompactionEndEvent(
+                result=f"Compacted {len(preparation.messages_to_summarize)} messages"
+            )
+        except Exception as err:
+            yield CompactionEndEvent(error_message=str(err))
+        finally:
+            self._compaction_signal = None
 
     def cancel(self):
         self.harness.cancel()
+
+        if self._compaction_signal is not None:
+            self._compaction_signal.cancel()

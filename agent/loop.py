@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Callable
+from typing import Any
 
 from agent.cancellation import CancellationSignal
 from agent.events import (
@@ -32,13 +33,14 @@ async def run_agent_loop(
     provider: ModelProvider,
     model: AIModel,
     system: str,
-    messages: list[AgentMessage],
+    messages: list[Any],
     tools: list[AgentTool],
     signal: CancellationSignal | None = None,
     get_steering_messages: Callable[[], tuple[UserMessage, ...]] = None,
     get_followup_messages: Callable[[], tuple[UserMessage, ...]] = None,
     # Deliberately set to large number so agent can run for long but limit for how long till we have proper testing
     max_turns: int = 1000,
+    convert_message_to_llm_compatible: Callable[[list[Any]], list[AgentMessage]] = None,
 ) -> AsyncIterator[AgentEvent]:
     tool_map = {t.name: t for t in tools}
     # messages: entire session history
@@ -88,7 +90,11 @@ async def run_agent_loop(
             stream = provider.stream_response(
                 model=model,
                 system=system,
-                messages=messages,
+                messages=(
+                    convert_message_to_llm_compatible(messages)
+                    if convert_message_to_llm_compatible
+                    else messages
+                ),
                 tools=tools,
                 signal=signal,
             )

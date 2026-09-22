@@ -162,9 +162,23 @@ async def main():
 
             if command_result.action.action == "compact":
                 instructions = command_result.action.args or None
-                print("\nCompacting conversation history...", flush=True)
-                msg = await coding_session.compact(custom_instructions=instructions)
-                print(f"\n{msg}\n", flush=True)
+
+                async for event in coding_session.compact(
+                    custom_instructions=instructions,
+                    reason="manual",
+                ):
+
+                    if event.type == "compaction_start":
+                        print(f"\n[Compacting ({event.reason})...]", flush=True)
+                    elif event.type == "compaction_end":
+                        if event.error_message:
+                            print(
+                                f"\n[Compaction failed: {event.error_message}]",
+                                flush=True,
+                            )
+                        else:
+                            print(f"\n[{event.result}]", flush=True)
+
                 continue
 
         print("assistant> ", end="", flush=True)
@@ -214,6 +228,15 @@ async def main():
                             f"\n[{event.message.stop_reason.upper()}]: {event.message.error_message}",
                             flush=True,
                         )
+                elif event.type == "compaction_start":
+                    print(f"\n[Compacting ({event.reason})...]", flush=True)
+                elif event.type == "compaction_end":
+                    if event.error_message:
+                        print(
+                            f"\n[Compaction failed: {event.error_message}]", flush=True
+                        )
+                    else:
+                        print(f"\n[{event.result}]", flush=True)
 
         except (KeyboardInterrupt, asyncio.CancelledError):
             print("\n[Interrupted by user]\n", flush=True)

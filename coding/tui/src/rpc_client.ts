@@ -1,7 +1,7 @@
 import { ChildProcess, spawn } from "node:child_process";
 import readline from "node:readline";
 import type { AgentEvent } from "./types/events.js";
-import type { CompactData, ExtensionUIRequest, ExtensionUIResponse, RewindTargetsData, RpcRequest, RpcResponse, SessionData, SessionListData, SessionState } from "./types/rpc.js";
+import type { ExtensionUIRequest, ExtensionUIResponse, RewindTargetsData, RpcRequest, RpcResponse, SessionData, SessionListData, SessionState } from "./types/rpc.js";
 
 function getPythonBin(): string {
     const project_root_dir_path = new URL("../../..", import.meta.url).pathname;
@@ -193,8 +193,8 @@ export class RpcClient {
     }
 
     // Compaction
-    async compact(custom_instructions?: string): Promise<CompactData> {
-        return this.send<CompactData>({ type: "compact", ...(custom_instructions !== undefined && { custom_instructions }) });
+    async compact(custom_instructions?: string): Promise<void> {
+        return this.send<void>({ type: "compact", ...(custom_instructions !== undefined && { custom_instructions }) });
     }
 
     // Abort

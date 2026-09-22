@@ -25,13 +25,14 @@ class AgentHarnessConfig:
     system: str
     tools: list[AgentTool] = field(default_factory=list)
     max_turns: int = 40
+    convert_message_to_llm_compatible: Callable[[list[Any]], list[AgentMessage]] = None
 
 
 class AgentHarness:
     def __init__(
         self,
         config: AgentHarnessConfig,
-        messages: Optional[list[AgentMessage]] = None,
+        messages: Optional[list[Any]] = None,
     ):
         self.messages = messages or []
         self.config = config
@@ -40,10 +41,10 @@ class AgentHarness:
         self.is_running: bool = False
         self.msg_queue_when_running = MessageQueueHandler()
 
-    def append_message(self, message: AgentMessage) -> None:
+    def append_message(self, message: Any) -> None:
         self.messages.append(message)
 
-    def replace_messages(self, messages: list[AgentMessage]) -> None:
+    def replace_messages(self, messages: list[Any]) -> None:
         self.messages = list(messages)
 
     def subscribe(self, listener: Callable[[AgentEvent], Any]) -> Callable[[], None]:
@@ -103,6 +104,7 @@ class AgentHarness:
                 signal=signal,
                 get_steering_messages=self.msg_queue_when_running.drain_steering,
                 get_followup_messages=self.msg_queue_when_running.drain_follow_up,
+                convert_message_to_llm_compatible=self.config.convert_message_to_llm_compatible,
             ):
                 await self._notify(event)
                 yield event

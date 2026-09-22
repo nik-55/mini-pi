@@ -3,7 +3,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from ai.types import AgentMessage
+from coding.messages import SessionMessage
 from coding.session_manager.manager import ChatSessionFileMetadata
 from coding.session import RewindTarget
 
@@ -83,7 +83,7 @@ class SessionState(BaseModel):
 
 class SessionData(BaseModel):
     session_id: str
-    messages: list[AgentMessage] = Field(default_factory=list)
+    messages: list[SessionMessage] = Field(default_factory=list)
 
 
 class SessionListData(BaseModel):
@@ -94,8 +94,8 @@ class RewindTargetsData(BaseModel):
     targets: list[RewindTarget]
 
 
-class CompactData(BaseModel):
-    response: str
+# class CompactData(BaseModel):
+#     response: str
 
 
 # RPC Responses (response of RPC requests from rpc_server to rpc_client)
@@ -123,6 +123,7 @@ class EmptySuccessResponse(BaseRpcSuccessResponse):
         RequestTypes.STEER,
         RequestTypes.FOLLOW_UP,
         RequestTypes.ABORT,
+        RequestTypes.COMPACT,
     ]
 
 
@@ -131,13 +132,12 @@ class RpcPayloadResponse(BaseRpcSuccessResponse):
     request_type: Literal[
         RequestTypes.GET_STATE,
         RequestTypes.NEW_SESSION,
-        RequestTypes.COMPACT,
         RequestTypes.LIST_SESSIONS,
         RequestTypes.RESUME,
         RequestTypes.GET_REWIND_TARGETS,
         RequestTypes.REWIND,
     ]
-    data: SessionState | SessionData | CompactData | SessionListData | RewindTargetsData
+    data: SessionState | SessionData | SessionListData | RewindTargetsData
 
 
 class RpcErrorResponse(BaseRpcResponse):

@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from coding.extensions.types import ExtensionUIContext
 from coding.session_manager.manager import ChatSessionManager, list_sessions
 from coding.rpc_types import (
-    CompactData,
     CompactRequest,
     EmptySuccessResponse,
     GeneralRequest,
@@ -213,15 +212,17 @@ async def main():
                 continue
 
             try:
-                compaction_resp = await coding_session.compact(
+                async for event in coding_session.compact(
                     custom_instructions=rpc_request.custom_instructions,
-                )
+                    reason="manual",
+                ):
+                    emit(event.model_dump(mode="json"))
+
                 send_response(
-                    RpcPayloadResponse(
+                    EmptySuccessResponse(
                         request_type=RequestTypes.COMPACT,
                         id=rpc_request.id,
-                        data=CompactData(response=compaction_resp),
-                    ),
+                    )
                 )
             except Exception as exc:
                 send_response(

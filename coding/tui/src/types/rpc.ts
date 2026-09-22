@@ -1,4 +1,4 @@
-import type { Message } from "./message.js";
+import type { SessionMessage } from "./message.js";
 
 // RPC Client Request
 export interface MessageRequest {
@@ -53,7 +53,7 @@ export interface SessionState {
 
 export interface SessionData {
     session_id: string;
-    messages: Message[];
+    messages: SessionMessage[];
 }
 
 export interface ChatSessionFileMetadata {
@@ -75,9 +75,9 @@ export interface RewindTargetsData {
     targets: RewindTarget[];
 }
 
-export interface CompactData {
-    response: string;
-}
+// export interface CompactData {
+//     response: string;
+// }
 
 // RPC Server Response
 
@@ -85,7 +85,7 @@ export type RpcSuccessResponse =
     | { id?: string; type: "response"; request_type: "prompt" | "steer" | "follow_up" | "abort"; success: true; }
     | { id?: string; type: "response"; request_type: "get_state"; success: true; data: SessionState; }
     | { id?: string; type: "response"; request_type: "new_session"; success: true; data: SessionData; }
-    | { id?: string; type: "response"; request_type: "compact"; success: true; data: CompactData; }
+    | { id?: string; type: "response"; request_type: "compact"; success: true; }
     | { id?: string; type: "response"; request_type: "list_sessions"; success: true; data: SessionListData; }
     | { id?: string; type: "response"; request_type: "resume"; success: true; data: SessionData; }
     | { id?: string; type: "response"; request_type: "rewind"; success: true; data: SessionData; }

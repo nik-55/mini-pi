@@ -125,10 +125,8 @@ class ChatStreamParser:
             # TODO: fireworks emit different keys
             prompt_tokens = usage_dict.get("prompt_tokens") or 0
             completion_tokens = usage_dict.get("completion_tokens") or 0
-            total_tokens = usage_dict.get("total_tokens") or (
-                prompt_tokens + completion_tokens
-            )
-            prompt_details = usage_dict.get("prompt_token_details") or {}
+            total_tokens = usage_dict.get("total_tokens") or 0
+            prompt_details = usage_dict.get("prompt_tokens_details") or {}
             cached_tokens = prompt_details.get("cached_tokens", 0) or 0
 
             self.usage = Usage(

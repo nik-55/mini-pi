@@ -36,3 +36,10 @@ export interface ToolResultMessageData {
 }
 
 export type Message = UserMessageData | AssistantMessageData | ToolResultMessageData;
+
+export interface CompactSummaryMessage {
+    role: "compaction_summary";
+    summary: string;
+}
+
+export type SessionMessage = Message | CompactSummaryMessage;

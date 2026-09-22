@@ -16,7 +16,7 @@ import {
     editorTheme,
 } from './theme.js';
 import { Trajectory } from "./trajectory.js";
-import type { AgentEvent } from "./types/events.js";
+import type { SessionEvent } from "./types/events.js";
 import { ActivityLoader } from "./loader.js";
 import { TUIHeader } from "./header.js";
 import { PickerComponent, type PickerOptions } from "./component.js";
@@ -252,15 +252,8 @@ function submitInput(text: string, isFollowup: boolean = false) {
 
         (async () => {
             try {
-                activityLoader.start("compacting...");
-                busy = true;
-                const data = await agent.compact(customInstructions);
-                activityLoader.stop();
-                busy = false;
-                trajectory.addText(`Compacted sessions: ${data.response}`, dim_color_wrapper);
+                await agent.compact(customInstructions);
             } catch (err) {
-                activityLoader.stop();
-                busy = false;
                 trajectory.addText(`Error compacting: ${err}`, red_color_wrapper);
             }
         })();
@@ -348,7 +341,7 @@ tui.addInputListener((data: string) => {
 });
 
 // Agent Event Handler
-function handle_coding_agent_event(event: AgentEvent) {
+function handle_coding_agent_event(event: SessionEvent) {
     switch (event.type) {
         case "agent_start": {
             busy = true;
@@ -387,6 +380,19 @@ function handle_coding_agent_event(event: AgentEvent) {
             activityLoader.stop();
             trajectory.endLoop();
             busy = false;
+            break;
+        }
+
+        case "compaction_start": {
+            busy = true;
+            activityLoader.start("compacting...");
+            break;
+        }
+
+        case "compaction_end": {
+            activityLoader.stop();
+            busy = false;
+            trajectory.handleCompactionEnd(event.result, event.error_message);
             break;
         }
 

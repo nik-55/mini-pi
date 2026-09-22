@@ -72,3 +72,19 @@ export type AgentEvent = AgentStartEvent
     | MessageEndEvent
     | ToolExecutionStartEvent
     | ToolExecutionEndEvent;
+
+
+type CompactionReason = "threshold" | "overflow" | "manual";
+
+export interface CompactionStartEvent {
+    type: "compaction_start";
+    reason: CompactionReason;
+}
+
+export interface CompactionEndEvent {
+    type: "compaction_end";
+    result?: string | null;
+    error_message?: string | null;
+}
+
+export type SessionEvent = AgentEvent | CompactionStartEvent | CompactionEndEvent;
