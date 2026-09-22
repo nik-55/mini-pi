@@ -151,6 +151,76 @@ function submitInput(text: string, isFollowup: boolean = false) {
         return;
     }
 
+    if (text == "/login" || text.startsWith("/login ")) {
+        const parts = text.slice("/login".length).trim().split(/\s+/);
+
+        const provider = parts[0];
+        const key = parts[1];
+
+        if (!provider || !key) {
+            trajectory.addText("Usage: /login <provider> <key>", red_color_wrapper);
+            return;
+        }
+
+        (async () => {
+            try {
+                await agent.login(provider, key);
+                trajectory.addText(`Saved API key for ${provider}`, dim_color_wrapper);
+            } catch (err) {
+                trajectory.addText(`Error saving API Key ${err}`, red_color_wrapper);
+            }
+        })()
+
+        return;
+    }
+
+    if (text == "/logout" || text.startsWith("/logout ")) {
+        const parts = text.slice("/logout".length).trim().split(/\s+/);
+
+        const provider = parts[0];
+
+        if (!provider) {
+            trajectory.addText("Usage: /logout <provider>", red_color_wrapper);
+            return;
+        }
+
+        (async () => {
+            try {
+                await agent.logout(provider);
+                trajectory.addText(`Removed stored API key for ${provider}`, dim_color_wrapper);
+            } catch (err) {
+                trajectory.addText(`Error removing API Key ${err}`, red_color_wrapper);
+            }
+        })()
+
+        return;
+    }
+
+    if (text == "/model" || text.startsWith("/model ")) {
+        const parts = text.slice("/model".length).trim().split(/\s+/);
+
+        const model_ref = parts[0];
+
+        if (!model_ref) {
+            trajectory.addText("Usage: /model <model_ref>", red_color_wrapper);
+            return;
+        }
+
+        (async () => {
+            try {
+                await agent.setDefaultModel(model_ref);
+                tuiHeader.currentModel = model_ref;
+                tuiHeader.updateHeader();
+                trajectory.addText(`Set default model to ${model_ref}`, dim_color_wrapper);
+            } catch (err) {
+                trajectory.addText(`Error setting model to ${err}`, red_color_wrapper);
+            }
+        })()
+
+        return;
+    }
+
+
     if (text == "/rewind") {
         (async () => {
             try {
@@ -448,6 +518,15 @@ const slashCommands: SlashCommand[] = [
     { name: "exit", description: "Exit Mini-Pi" },
     {
         name: "rewind", description: "Rewind conversation to a previous user message"
+    },
+    {
+        name: "login", description: "Login to provider using api key", argumentHint: "<provider> <key>"
+    },
+    {
+        name: "logout", description: "Remove the api key for provider", argumentHint: "<provider>"
+    },
+    {
+        name: "model", description: "Set the default model across all sessions", argumentHint: "<model_ref>"
     },
 ]
 

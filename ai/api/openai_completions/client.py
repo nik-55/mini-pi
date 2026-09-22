@@ -55,6 +55,12 @@ class OpenAIProvider(ModelProvider):
                     return
 
                 try:
+                    # TODO
+                    if not self.api_key:
+                        raise ValueError(
+                            f"API key is not set for provider: {model.provider}"
+                        )
+
                     async with httpx.AsyncClient(
                         timeout=self.timeout_seconds
                     ) as client:

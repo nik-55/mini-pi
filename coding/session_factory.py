@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 
 from ai.api.openai_completions import OpenAIProvider
-from ai.registry import get_model, resolve_api_key
+from ai.registry import get_model, list_models, resolve_api_key
+from coding.auth import get_api_key_from_auth
 from coding.context import (
     discover_project_context,
     discover_skills,
@@ -14,6 +15,7 @@ from coding.extensions.loader import load_extensions_from_dir
 from coding.extensions.runtime import ExtensionRuntime
 from coding.session import CodingSessionConfig
 from coding.session_manager.manager import ChatSessionManager
+from coding.settings import load_settings
 from coding.tools import (
     create_edit_tool,
     create_read_tool,
@@ -64,18 +66,25 @@ async def build_session_config(
 
     await load_extensions_from_dir(extension_dir, extension_runtime)
 
-    model_ref = os.getenv("MODEL")
+    # Precedence order: auth storage / settings > environment variable
+    settings = load_settings()
+    model_ref = settings.default_model_ref or os.getenv("MODEL")
 
     if not model_ref:
-        raise ValueError(
-            "MODEL environment variable is not set (expected provider:model_id)"
-        )
+        available_models = list_models()
+        if available_models:
+            first = available_models[0]
+            model_ref = f"{first.provider}:{first.id}"
+        else:
+            raise ValueError("No model registered.")
 
     ai_model = get_model(model_ref)
-    api_key = resolve_api_key(ai_model.provider)
 
-    if not api_key:
-        raise ValueError(f"API key is missing for provider: {ai_model.provider}")
+    api_key = (
+        get_api_key_from_auth(ai_model.provider)
+        or resolve_api_key(ai_model.provider)
+        or ""
+    )
 
     provider = OpenAIProvider(api_key=api_key, base_url=ai_model.base_url)
 

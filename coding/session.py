@@ -109,6 +109,18 @@ class CodingSession:
             chat_session_manager=chat_session_manager,
         )
 
+    def set_model(self, model: AIModel, provider: ModelProvider) -> None:
+        # TODO
+        self.config.model = model
+        self.config.provider = provider
+        self.harness.config.model = model
+        self.harness.config.provider = provider
+
+    def set_api_key(self, api_key: str) -> None:
+        # TODO
+        self.config.provider.api_key = api_key
+        self.harness.config.provider.api_key = api_key
+
     # def subscribe(self, listener: Callable[[SessionEvent], Any]) -> Callable[[], None]:
     #     self._listerners.append(listener)
 

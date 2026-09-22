@@ -93,17 +93,15 @@ def format_file_operations(messages: list[SessionMessage]):
             elif tc.name in ("write", "edit"):
                 modified.add(path)
 
-    read_only = sorted(read - modified)
-    modified_files = sorted(modified)
+    read_only = "\n".join(sorted(read - modified))
+    modified_files = "\n".join(sorted(modified))
 
     sections: list[str] = []
 
     if read_only:
-        sections.append(f"<read-files>\n{'\n'.join(read_only)}\n</read-files>")
+        sections.append(f"<read-files>\n{read_only}\n</read-files>")
 
     if modified_files:
-        sections.append(
-            f"<modified-files>\n{'\n'.join(modified_files)}\n</modified-files>"
-        )
+        sections.append(f"<modified-files>\n{modified_files}\n</modified-files>")
 
     return "\n\n".join(sections)

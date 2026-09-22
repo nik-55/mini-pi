@@ -23,6 +23,10 @@ class RequestTypes(StrEnum):
     GET_REWIND_TARGETS = "get_rewind_targets"
     GET_COMMANDS = "get_commands"
 
+    LOGIN = "login"
+    LOGOUT = "logout"
+    SET_DEFAULT_MODEL = "set_default_model"
+
 
 # RPC Requests (request from rpc_client to rpc_server)
 
@@ -52,6 +56,22 @@ class RewindRequest(BaseRequest):
     entry_id: str
 
 
+class LoginRequest(BaseRequest):
+    type: Literal[RequestTypes.LOGIN] = RequestTypes.LOGIN
+    provider: str
+    key: str
+
+
+class LogoutRequest(BaseRequest):
+    type: Literal[RequestTypes.LOGOUT] = RequestTypes.LOGOUT
+    provider: str
+
+
+class SetDefaultModelRequest(BaseRequest):
+    type: Literal[RequestTypes.SET_DEFAULT_MODEL] = RequestTypes.SET_DEFAULT_MODEL
+    model_ref: str
+
+
 # Requests with no arguments other than id and type
 class GeneralRequest(BaseRequest):
     type: Literal[
@@ -64,7 +84,14 @@ class GeneralRequest(BaseRequest):
 
 
 RpcRequest = Annotated[
-    MessageRequest | CompactRequest | ResumeRequest | RewindRequest | GeneralRequest,
+    MessageRequest
+    | CompactRequest
+    | ResumeRequest
+    | RewindRequest
+    | LoginRequest
+    | LogoutRequest
+    | SetDefaultModelRequest
+    | GeneralRequest,
     Field(discriminator="type"),
 ]
 
@@ -124,6 +151,9 @@ class EmptySuccessResponse(BaseRpcSuccessResponse):
         RequestTypes.FOLLOW_UP,
         RequestTypes.ABORT,
         RequestTypes.COMPACT,
+        RequestTypes.LOGIN,
+        RequestTypes.LOGOUT,
+        RequestTypes.SET_DEFAULT_MODEL,
     ]
 
 

@@ -5,12 +5,17 @@ import uuid
 
 from dotenv import load_dotenv
 
+from ai.api.openai_completions.client import OpenAIProvider
+from ai.registry import get_model, resolve_api_key
+from coding.auth import remove_api_key_from_auth, set_api_key_to_auth
 from coding.extensions.types import ExtensionUIContext
 from coding.session_manager.manager import ChatSessionManager, list_sessions
 from coding.rpc_types import (
     CompactRequest,
     EmptySuccessResponse,
     GeneralRequest,
+    LoginRequest,
+    LogoutRequest,
     MessageRequest,
     RequestTypes,
     ResumeRequest,
@@ -22,6 +27,7 @@ from coding.rpc_types import (
     SessionData,
     SessionListData,
     SessionState,
+    SetDefaultModelRequest,
     rpc_request_adapter,
     ExtensionUIRequest,
     ExtensionUIResponse,
@@ -30,6 +36,8 @@ from coding.rpc_types import (
 )
 from coding.session import CodingSession
 from coding.session_factory import build_session_config
+from coding.settings import set_default_model
+from coding.auth import get_api_key_from_auth
 
 _out = sys.stdout  # _out = fd_1
 sys.stdout = sys.stderr  # sys.stdout --> fd_2
@@ -305,6 +313,63 @@ async def main():
                         error=f"Rewind is failed: {exc}",
                     )
                 )
+        elif isinstance(rpc_request, LoginRequest):
+            set_api_key_to_auth(rpc_request.provider, rpc_request.key)
+
+            if coding_session.config.model.provider == rpc_request.provider:
+                coding_session.set_api_key(api_key=rpc_request.key)
+
+            send_response(
+                EmptySuccessResponse(
+                    request_type=RequestTypes.LOGIN,
+                    id=rpc_request.id,
+                )
+            )
+        elif isinstance(rpc_request, LogoutRequest):
+            remove_api_key_from_auth(rpc_request.provider)
+            if coding_session.config.model.provider == rpc_request.provider:
+                coding_session.set_api_key("")
+
+            send_response(
+                EmptySuccessResponse(
+                    request_type=RequestTypes.LOGOUT,
+                    id=rpc_request.id,
+                )
+            )
+        elif isinstance(rpc_request, SetDefaultModelRequest):
+            try:
+                ai_model = get_model(rpc_request.model_ref)
+                api_key = get_api_key_from_auth(ai_model.provider) or resolve_api_key(
+                    ai_model.provider
+                )
+
+                if not api_key:
+                    raise ValueError(
+                        f"API key missing for provider: {ai_model.provider}"
+                    )
+
+                set_default_model(rpc_request.model_ref)
+
+                coding_session.set_model(
+                    ai_model,
+                    OpenAIProvider(api_key=api_key, base_url=ai_model.base_url),
+                )
+
+                send_response(
+                    EmptySuccessResponse(
+                        request_type=RequestTypes.SET_DEFAULT_MODEL,
+                        id=rpc_request.id,
+                    )
+                )
+            except Exception as err:
+                send_response(
+                    RpcErrorResponse(
+                        request_type=RequestTypes.SET_DEFAULT_MODEL,
+                        id=rpc_request.id,
+                        error=str(err),
+                    )
+                )
+
         elif isinstance(rpc_request, GeneralRequest):
             if is_running() and rpc_request.type != RequestTypes.ABORT:
                 send_response(

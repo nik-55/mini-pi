@@ -32,6 +32,21 @@ def setup(api: ExtensionAPI) -> None:
                         max_tokens_field="max_tokens",
                     ),
                 ),
+                # https://fireworks.ai/models/fireworks/glm-5p3-flash
+                AIModel(
+                    id="accounts/fireworks/models/glm-5p3-flash",
+                    name="GLM 5.3 Flash",
+                    api=provider_api,
+                    provider=provider_name,
+                    base_url=base_url,
+                    reasoning=True,
+                    context_window=1040_000,
+                    max_tokens=64_000,
+                    compat=OpenAICompletionsComp(
+                        supports_usage_in_streaming=True,
+                        max_tokens_field="max_tokens",
+                    ),
+                ),
             ],
         )
     )

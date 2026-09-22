@@ -197,6 +197,18 @@ export class RpcClient {
         return this.send<void>({ type: "compact", ...(custom_instructions !== undefined && { custom_instructions }) });
     }
 
+    async login(provider: string, key: string): Promise<void> {
+        return this.send<void>({ type: "login", provider, key });
+    }
+
+    async logout(provider: string): Promise<void> {
+        return this.send<void>({ type: "logout", provider });
+    }
+
+    async setDefaultModel(model_ref: string): Promise<void> {
+        return this.send<void>({ type: "set_default_model", model_ref });
+    }
+
     // Abort
     async abort(): Promise<void> {
         return this.send<void>({ type: "abort" });

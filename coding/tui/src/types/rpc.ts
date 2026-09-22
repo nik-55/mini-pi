@@ -25,6 +25,25 @@ export interface RewindRequest {
     entry_id: string;
 }
 
+export interface LoginRequest {
+    id?: string;
+    type: "login";
+    provider: string;
+    key: string;
+}
+
+export interface LogoutRequest {
+    id?: string;
+    type: "logout";
+    provider: string;
+}
+
+export interface SetDefaultModelRequest {
+    id?: string;
+    type: "set_default_model";
+    model_ref: string;
+}
+
 // No arguments
 export interface GeneralRequest {
     id?: string;
@@ -42,6 +61,9 @@ export type RpcRequest =
     | CompactRequest
     | ResumeRequest
     | RewindRequest
+    | LoginRequest
+    | LogoutRequest
+    | SetDefaultModelRequest
     | GeneralRequest;
 
 // RPC server response payload
@@ -89,7 +111,10 @@ export type RpcSuccessResponse =
     | { id?: string; type: "response"; request_type: "list_sessions"; success: true; data: SessionListData; }
     | { id?: string; type: "response"; request_type: "resume"; success: true; data: SessionData; }
     | { id?: string; type: "response"; request_type: "rewind"; success: true; data: SessionData; }
-    | { id?: string; type: "response"; request_type: "get_rewind_targets"; success: true; data: RewindTargetsData; };
+    | { id?: string; type: "response"; request_type: "get_rewind_targets"; success: true; data: RewindTargetsData; }
+    | { id?: string; type: "response"; request_type: "login"; success: true; }
+    | { id?: string; type: "response"; request_type: "logout"; success: true; }
+    | { id?: string; type: "response"; request_type: "set_default_model"; success: true; };
 
 export interface RpcErrorResponse {
     id?: string;
