@@ -1,8 +1,8 @@
 import { Container, Spacer, Text, type Component } from "@earendil-works/pi-tui";
 import { cyan_color_wrapper, dim_color_wrapper, magneta_color_wrapper, red_color_wrapper, type Colorfn } from "./theme.js";
 import { CollapsibleComponent, MarkdownMsgComponent } from "./component.js";
-import { summarizeArgs } from "./formatters.js";
-import type { Message } from "./types/message.js";
+import { formatTokens, summarizeArgs } from "./formatters.js";
+import type { AssistantMessageData, SessionMessage, Usage } from "./types/message.js";
 
 export class Trajectory {
     public trajectoryContainer = new Container();
@@ -87,6 +87,31 @@ export class Trajectory {
         this.requestRender();
     }
 
+    public handleAssistantMessageEnd(message: AssistantMessageData) {
+        this.finishThinking();
+        this.currentAssistantMarkdownMsgComponent = null;
+
+        if (message.stop_reason == "error") {
+            this.addText(`Error: ${message.error_message || "(unknown error)"}`, red_color_wrapper);
+        }
+        else if (message.stop_reason == "aborted") {
+            this.addText(`${message.error_message || "(operation cancelled)"}`, red_color_wrapper);
+        }
+
+        if (message.usage) {
+            this.handleAssistantUsage(message.usage);
+        }
+    }
+
+    public handleAssistantUsage(usage: Usage) {
+        const parts = [
+            `↑${formatTokens(usage.input_tokens)}`,
+            `↓${formatTokens(usage.output_tokens)}`,
+            `R${formatTokens(usage.cache_read)}`
+        ]
+        this.addText(parts.join(" ") + " tokens", dim_color_wrapper);
+    }
+
     public handleToolEnd(name: string, tool_call_id: string, result: string, is_error: boolean) {
         const block = this.tools_to_component_mapping.get(tool_call_id);
         if (block) {
@@ -97,7 +122,19 @@ export class Trajectory {
         }
     }
 
-    public loadMessages(messages: Message[]) {
+    public handleCompactionEnd(result?: string | null, error_message?: string | null) {
+        if (error_message) {
+            this.addText(`Compaction failed: ${error_message}`, red_color_wrapper);
+        }
+        else if (result) {
+            const compactionBlock = this.createCollapsible("Compacted", dim_color_wrapper);
+            compactionBlock.text = result;
+            compactionBlock.sync();
+            this.requestRender();
+        }
+    }
+
+    public loadMessages(messages: SessionMessage[]) {
         this.clear();
 
         for (const m of messages) {
@@ -123,6 +160,16 @@ export class Trajectory {
                     this.tools_to_component_mapping.set(tc.id, tcBlock);
                     tcBlock.sync();
                 }
+
+                if (m.stop_reason == "error") {
+                    this.addText(`Error: ${m.error_message || "(unknown error)"}`, red_color_wrapper);
+                } else if (m.stop_reason == "aborted") {
+                    this.addText(m.error_message || "(operation cancelled)", red_color_wrapper);
+                }
+
+                if (m.usage) {
+                    this.handleAssistantUsage(m.usage);
+                }
             }
             else if (m.role == "tool_result") {
                 const trBlock = this.tools_to_component_mapping.get(m.tool_call_id);
@@ -132,6 +179,11 @@ export class Trajectory {
                     trBlock.color = m.is_error ? red_color_wrapper : magneta_color_wrapper;
                     trBlock.sync();
                 }
+            }
+            else if (m.role == "compaction_summary") {
+                const compBlock = this.createCollapsible("Compacted", dim_color_wrapper);
+                compBlock.text = m.summary;
+                compBlock.sync();
             }
         }
 

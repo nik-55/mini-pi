@@ -2,12 +2,13 @@
 # uv venv /tmp/test-mini-pi-311 --python 3.11 && \
 # uv pip install -r requirements.txt --python /tmp/test-mini-pi-311/bin/python && \
 # PYTHONPATH=. /tmp/test-mini-pi-311/bin/python -c "
-# import agent.messages
-# import agent.loop
+# import ai
+# import agent
+# import coding
 # import agent.harness
-# import ai.openai
+# import ai.api.openai_completions.client
 # import coding.session
-# import coding.headless
+# import coding.rpc
 # import coding.tools
 # import coding.cli
 # print('SUCCESS: Python 3.11 import check passed.')
@@ -23,7 +24,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mini-pi-agent"
-version = "0.1.1"
+version = "0.1.2"
 description = "A minimalist coding agent"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +33,7 @@ dependencies = [
     "pydantic>=2.13.5",
     "python-dotenv>=1.2.3",
     "prompt_toolkit>=3.0.53",
+    "jsonschema>=4.26.0",
 ]
 
 [project.urls]
@@ -50,6 +52,7 @@ exclude = [
 
 [tool.hatch.build.targets.wheel.force-include]
 "coding/tui_dist" = "coding/tui_dist"
+"extensions/bundled" = "extensions/bundled"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
@@ -64,3 +67,4 @@ exclude = [
 
 [tool.hatch.build.targets.sdist.force-include]
 "coding/tui_dist" = "coding/tui_dist"
+"extensions/bundled" = "extensions/bundled"

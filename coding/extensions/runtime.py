@@ -3,8 +3,9 @@ from typing import Any
 
 from agent.tools import AgentTool
 from coding.commands import SlashCommand
-from coding.extensions.api import (
-    ExtensionAPI,
+from coding.extensions.api import ExtensionAPI
+from coding.extensions.types import (
+    ExtensionContext,
     HookHandler,
     InputHookPayload,
     InputHookResult,
@@ -16,8 +17,9 @@ from coding.extensions.api import (
 
 
 class ExtensionRuntime:
-    def __init__(self):
+    def __init__(self, context: ExtensionContext):
         self.extensions: list[ExtensionAPI] = []
+        self.context = context
 
     def register_extension(self, api: ExtensionAPI):
         self.extensions.append(api)
@@ -46,6 +48,14 @@ class ExtensionRuntime:
 
         return commands
 
+    async def _invoke_hook_handler(self, handler: HookHandler, payload: Any) -> Any:
+        res = handler(payload, self.context)
+
+        if inspect.isawaitable(res):
+            res = await res
+
+        return res
+
     def wrap_tool(self, tool: AgentTool) -> AgentTool:
         original_execute = tool.execute
 
@@ -57,10 +67,8 @@ class ExtensionRuntime:
                     tool_name=tool.name,
                     arguments=effective_args,
                 )
-                res = handler(payload)
 
-                if inspect.isawaitable(res):
-                    res = await res
+                res = await self._invoke_hook_handler(handler, payload)
 
                 if isinstance(res, ToolCallHookResult):
                     if res.block:
@@ -81,9 +89,7 @@ class ExtensionRuntime:
                     result=effective_result,
                 )
 
-                res = handler(payload)
-                if inspect.isawaitable(res):
-                    res = await res
+                res = await self._invoke_hook_handler(handler, payload)
 
                 if isinstance(res, ToolResultHookResult) and res.result is not None:
                     effective_result = res.result
@@ -102,10 +108,8 @@ class ExtensionRuntime:
 
         for handler in self._handlers_by_event("input"):
             payload = InputHookPayload(text=current_text)
-            res = handler(payload)
 
-            if inspect.isawaitable(res):
-                res = await res
+            res = await self._invoke_hook_handler(handler, payload)
 
             if isinstance(res, InputHookResult):
                 if res.action == "handled":
@@ -113,4 +117,7 @@ class ExtensionRuntime:
                 if res.action == "transform" and res.text is not None:
                     current_text = res.text
 
-        return InputHookResult(action="continue", text=current_text)
+        if current_text != text:
+            return InputHookResult(action="transform", text=current_text)
+
+        return InputHookResult(action="continue")

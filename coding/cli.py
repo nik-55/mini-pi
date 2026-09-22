@@ -3,25 +3,21 @@ import sys
 
 from dotenv import load_dotenv
 
-from agent.events import (
-    AssistantErrorEvent,
-    TextDeltaEvent,
-    ThinkingDeltaEvent,
-    ToolExecutionEndEvent,
-    ToolExecutionStartEvent,
-)
-from agent.messages import (
+from agent.events import EventTypes
+from ai.types import (
     AgentMessage,
     AssistantMessage,
+    MessageType,
     ToolResultMessage,
     UserMessage,
 )
 
 from coding.command_factory import build_command_registry
 from coding.commands import CommandRegistry, CommandResult
+from coding.extensions.types import ExtensionUIContext
 from coding.session_factory import build_session_config
 from coding.session import CodingSession
-from coding.chat_session_manager import ChatSessionManager
+from coding.session_manager.manager import ChatSessionManager, list_sessions
 
 
 def clear_screen():
@@ -47,19 +43,49 @@ def print_session_history(messages: list[AgentMessage]):
             print(f"[Tool output {msg.tool_name}: {snippet.strip()}]\n")
 
 
+class CliExtensionUI(ExtensionUIContext):
+    async def select(self, title: str, options: list[str]) -> str | None:
+        print(f"\n{title}", flush=True)
+
+        for idx, opt in enumerate(options, start=1):
+            print(f" {idx}. {opt}", flush=True)
+
+        try:
+            choice = input(f"Select [1-{len(options)}]: ").strip()
+            choice = choice.strip()
+
+            if not choice:
+                return
+
+            if choice.isdigit():
+                num = int(choice)
+
+                if 1 <= num <= len(options):
+                    return options[num - 1]
+
+            return
+        except (KeyboardInterrupt, EOFError):
+            return
+
+    def notify(self, message: str, level: str = "info") -> None:
+        print(f"\n[{level.upper()}] {message}", flush=True)
+
+
 async def main():
-    session_manager = ChatSessionManager()
-    session_id, storage = session_manager.new_session_storage()
+    config = await build_session_config(
+        chat_session_manager=ChatSessionManager.new_session()
+    )
 
-    config = await build_session_config(storage=storage)
-
+    # TODO: Should we set context UI directly by assigning?
+    config.extension_runtime.context.ui = CliExtensionUI()
     coding_session = await CodingSession.load(config)
+
     command_registry: CommandRegistry = build_command_registry(
         extension_runtime=config.extension_runtime
     )
 
     print(
-        f"Mini Pi started with model '{config.model}'. Session: {session_id}.\n",
+        f"Mini Pi started with model '{config.model.name}'. Session: {config.chat_session_manager.session_id}.\n",
         flush=True,
     )
 
@@ -83,22 +109,30 @@ async def main():
                 break
 
             if command_result.action.action == "clear":
-                session_id, storage = session_manager.new_session_storage()
-                config.storage = storage
+                new_chat_session_manager = ChatSessionManager.new_session(
+                    cwd=config.chat_session_manager.cwd
+                )
+                config.chat_session_manager = new_chat_session_manager
                 coding_session = await CodingSession.load(config)
                 clear_screen()
-                print(f"\nStarting new session: {session_id}\n", flush=True)
+                print(
+                    f"\nStarting new session: {config.chat_session_manager.session_id}\n",
+                    flush=True,
+                )
                 continue
 
             if command_result.action.action == "session":
-                print(f"Active session: {session_id}", flush=True)
+                print(
+                    f"Active session: {config.chat_session_manager.session_id}",
+                    flush=True,
+                )
                 continue
 
             if command_result.action.action == "resume":
                 args = command_result.action.args
 
                 if not args:
-                    session_rows = session_manager.list_sessions()
+                    session_rows = list_sessions()
                     print("\nAvaliable Sessions:")
                     for s in session_rows:
                         print(
@@ -109,17 +143,18 @@ async def main():
                     print("Use `/resume <id>` to switch\n")
                     continue
 
-                matched = session_manager.get_session_storage(args)
-                if matched is None:
+                new_chat_session_manager = ChatSessionManager.search_session(
+                    args, cwd=config.chat_session_manager.cwd
+                )
+                if new_chat_session_manager is None:
                     print(f"No session with '{args}'", flush=True)
                     continue
 
-                session_id, storage = matched
-                config.storage = storage
+                config.chat_session_manager = new_chat_session_manager
                 coding_session = await CodingSession.load(config)
                 clear_screen()
                 print(
-                    f"\nResuming session: {session_id} with {len(coding_session.harness.messages)} messages\n",
+                    f"\nResuming session: {new_chat_session_manager.session_id} with {len(coding_session.harness.messages)} messages\n",
                     flush=True,
                 )
                 print_session_history(coding_session.harness.messages)
@@ -127,9 +162,23 @@ async def main():
 
             if command_result.action.action == "compact":
                 instructions = command_result.action.args or None
-                print("\nCompacting conversation history...", flush=True)
-                msg = await coding_session.compact(custom_instructions=instructions)
-                print(f"\n{msg}\n", flush=True)
+
+                async for event in coding_session.compact(
+                    custom_instructions=instructions,
+                    reason="manual",
+                ):
+
+                    if event.type == "compaction_start":
+                        print(f"\n[Compacting ({event.reason})...]", flush=True)
+                    elif event.type == "compaction_end":
+                        if event.error_message:
+                            print(
+                                f"\n[Compaction failed: {event.error_message}]",
+                                flush=True,
+                            )
+                        else:
+                            print(f"\n[{event.result}]", flush=True)
+
                 continue
 
         print("assistant> ", end="", flush=True)
@@ -138,24 +187,28 @@ async def main():
 
         try:
             async for event in coding_session.prompt(user_input):
-                if isinstance(event, ThinkingDeltaEvent):
-                    if not in_thinking:
-                        print("|start_thinking|\n", end="", flush=True)
-                        in_thinking = True
+                if event.type == EventTypes.MESSAGE_UPDATE:
+                    delta_event = event.assistant_message_event
 
-                    print(f"\033[90m{event.delta}\033[0m", end="", flush=True)
-                elif in_thinking:
-                    in_thinking = False
-                    print("\n|end_thinking|\n\n", end="", flush=True)
+                    if delta_event.type == EventTypes.THINKING_DELTA:
+                        if not in_thinking:
+                            print("|start_thinking|\n", end="", flush=True)
+                            in_thinking = True
 
-                if isinstance(event, TextDeltaEvent):
-                    print(event.delta, end="", flush=True)
-                elif isinstance(event, ToolExecutionStartEvent):
+                        print(f"\033[90m{delta_event.delta}\033[0m", end="", flush=True)
+                    elif in_thinking:
+                        in_thinking = False
+                        print("\n|end_thinking|\n\n", end="", flush=True)
+
+                    if delta_event.type == EventTypes.TEXT_DELTA:
+                        print(delta_event.delta, end="", flush=True)
+
+                elif event.type == EventTypes.TOOL_EXECUTION_START:
                     print(
                         f"\n\n[Tool Call: {event.tool_name}({event.arguments})]\n",
                         flush=True,
                     )
-                elif isinstance(event, ToolExecutionEndEvent):
+                elif event.type == EventTypes.TOOL_EXECUTION_END:
                     snippet = event.result[:200] + (
                         "..." if len(event.result) > 200 else ""
                     )
@@ -163,8 +216,27 @@ async def main():
                         f"\n\n[Tool Output {event.tool_name}: {snippet.strip()}]\n",
                         flush=True,
                     )
-                elif isinstance(event, AssistantErrorEvent):
-                    print(f"\n[Error: {event.error}]\n", flush=True)
+                elif event.type == EventTypes.MESSAGE_END:
+                    if in_thinking:
+                        in_thinking = False
+
+                    if (
+                        event.message.role == MessageType.ASSISTANT
+                        and event.message.stop_reason in ("error", "aborted")
+                    ):
+                        print(
+                            f"\n[{event.message.stop_reason.upper()}]: {event.message.error_message}",
+                            flush=True,
+                        )
+                elif event.type == "compaction_start":
+                    print(f"\n[Compacting ({event.reason})...]", flush=True)
+                elif event.type == "compaction_end":
+                    if event.error_message:
+                        print(
+                            f"\n[Compaction failed: {event.error_message}]", flush=True
+                        )
+                    else:
+                        print(f"\n[{event.result}]", flush=True)
 
         except (KeyboardInterrupt, asyncio.CancelledError):
             print("\n[Interrupted by user]\n", flush=True)

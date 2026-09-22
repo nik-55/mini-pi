@@ -1,50 +1,7 @@
-from collections.abc import Callable
-from typing import Any, Awaitable, Literal
-
-from pydantic import BaseModel
-
 from agent.tools import AgentTool
+from ai.registry import Provider, register_inference_provider
 from coding.commands import SlashCommand
-
-
-class ToolCallHookPayload(BaseModel):
-    tool_name: str
-    arguments: dict[str, Any]
-
-
-class ToolCallHookResult(BaseModel):
-    block: bool = False
-    arguments: dict[str, Any] | None = None
-    reason: str | None = None
-
-
-class ToolResultHookPayload(BaseModel):
-    tool_name: str
-    arguments: dict[str, Any]
-    result: str
-
-
-class ToolResultHookResult(BaseModel):
-    result: str | None = None
-
-
-class InputHookPayload(BaseModel):
-    text: str
-
-
-class InputHookResult(BaseModel):
-    text: str | None = None
-    reply: str | None = None
-    action: Literal["continue", "transform", "handled"] = "continue"
-    # continue = leave prompt unchanged
-    # transform = replace prompt text with `text`
-    # handled = dont sent to agent reply to user with `reply` directly
-
-
-HookHandlerOutputType = (
-    ToolCallHookResult | ToolResultHookResult | InputHookResult | None
-)
-HookHandler = Callable[[Any], HookHandlerOutputType | Awaitable[HookHandlerOutputType]]
+from coding.extensions.types import HookHandler
 
 
 class ExtensionAPI:
@@ -59,6 +16,9 @@ class ExtensionAPI:
 
     def register_command(self, command: SlashCommand):
         self.commands.append(command)
+
+    def register_llm_provider(self, provider: Provider) -> None:
+        register_inference_provider(provider)
 
     # @api.on
     def on(self, event: str):

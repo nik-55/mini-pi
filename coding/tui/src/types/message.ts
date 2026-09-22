@@ -11,11 +11,20 @@ export interface ToolCallData {
     arguments: Record<string, unknown>;
 }
 
+export interface Usage {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read: number;
+}
+
 export interface AssistantMessageData {
     role: "assistant";
     content: string;
     thinking?: string;
     tool_calls?: ToolCallData[];
+    stop_reason?: string;
+    error_message?: string;
+    usage?: Usage;
 }
 
 export interface ToolResultMessageData {
@@ -27,3 +36,10 @@ export interface ToolResultMessageData {
 }
 
 export type Message = UserMessageData | AssistantMessageData | ToolResultMessageData;
+
+export interface CompactSummaryMessage {
+    role: "compaction_summary";
+    summary: string;
+}
+
+export type SessionMessage = Message | CompactSummaryMessage;

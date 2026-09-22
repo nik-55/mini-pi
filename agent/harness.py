@@ -4,29 +4,35 @@ import inspect
 from typing import Any, Optional
 
 from agent.cancellation import CancellationSignal
-from agent.events import AgentEvent, MessageEndEvent
+from agent.events import (
+    AgentEndEvent,
+    AgentEvent,
+    MessageEndEvent,
+    MessageStartEvent,
+    TurnEndEvent,
+)
 from agent.loop import run_agent_loop
-from agent.messages import AgentMessage, UserMessage
+from ai.types import AIModel, AgentMessage, AssistantMessage, UserMessage
 from agent.provider import ModelProvider
 from agent.queue import MessageQueueHandler
-from agent.tool_repair import get_tool_result_repairs
 from agent.tools import AgentTool
 
 
 @dataclass
 class AgentHarnessConfig:
     provider: ModelProvider
-    model: str
+    model: AIModel
     system: str
     tools: list[AgentTool] = field(default_factory=list)
     max_turns: int = 40
+    convert_message_to_llm_compatible: Callable[[list[Any]], list[AgentMessage]] = None
 
 
 class AgentHarness:
     def __init__(
         self,
         config: AgentHarnessConfig,
-        messages: Optional[list[AgentMessage]] = None,
+        messages: Optional[list[Any]] = None,
     ):
         self.messages = messages or []
         self.config = config
@@ -35,10 +41,10 @@ class AgentHarness:
         self.is_running: bool = False
         self.msg_queue_when_running = MessageQueueHandler()
 
-    def append_message(self, message: AgentMessage) -> None:
+    def append_message(self, message: Any) -> None:
         self.messages.append(message)
 
-    def replace_messages(self, messages: list[AgentMessage]) -> None:
+    def replace_messages(self, messages: list[Any]) -> None:
         self.messages = list(messages)
 
     def subscribe(self, listener: Callable[[AgentEvent], Any]) -> Callable[[], None]:
@@ -67,22 +73,16 @@ class AgentHarness:
                 "Agent is already running, use msg_queue_when_running to queue messages"
             )
 
-        # Repair any dangling tool calls before user prompt send to llm
-        # TODO: This seem incorrect that we are yielding event when repairing
-        # What can be proper way to do require study
-        repairs = get_tool_result_repairs(self.messages)
-
-        for r in repairs:
-            self.append_message(r)
-            event = MessageEndEvent(message=r)
-            await self._notify(event)
-            yield event
-
         user_message = UserMessage(content=content)
         self.append_message(message=user_message)
-        event = MessageEndEvent(message=user_message)
-        await self._notify(event)
-        yield event
+
+        start_event = MessageStartEvent(message=user_message)
+        await self._notify(start_event)
+        yield start_event
+
+        end_event = MessageEndEvent(message=user_message)
+        await self._notify(end_event)
+        yield end_event
 
         async for event in self._continue():
             yield event
@@ -104,9 +104,30 @@ class AgentHarness:
                 signal=signal,
                 get_steering_messages=self.msg_queue_when_running.drain_steering,
                 get_followup_messages=self.msg_queue_when_running.drain_follow_up,
+                convert_message_to_llm_compatible=self.config.convert_message_to_llm_compatible,
             ):
                 await self._notify(event)
                 yield event
+        except Exception as err:
+            last_msg = self.messages[-1] if self.messages else None
+            if not (
+                isinstance(last_msg, AssistantMessage)
+                and last_msg.stop_reason in ("error", "aborted")
+            ):
+                failure_message = AssistantMessage(
+                    stop_reason="error",
+                    error_message=str(err),
+                )
+                self.append_message(failure_message)
+
+                for ev in (
+                    MessageStartEvent(message=failure_message),
+                    MessageEndEvent(message=failure_message),
+                    TurnEndEvent(message=failure_message, tool_results=[]),
+                    AgentEndEvent(messages=[failure_message]),
+                ):
+                    await self._notify(ev)
+                    yield ev
         finally:
             if self._cancellation_signal is signal:
                 self._cancellation_signal = None

@@ -1,12 +1,15 @@
 # Reference: https://github.com/openai/openai-python/blob/v3.13.0/src/openai/_base_client.py
 
 
+import asyncio
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import random
 from typing import Any
 
 import httpx
+
+from agent.cancellation import CancellationSignal
 
 # 4xx class means Client error: the request itself is wrong
 # 400 Bad request = json payload or invalid parameters
@@ -22,6 +25,23 @@ RETRYABLE_STATUS_CODES = {
 }
 
 DEFAULT_MAX_RETRY_DELAY_SECONDS = 60.0
+
+
+async def abortable_sleep(
+    seconds: float, signal: CancellationSignal | None = None
+) -> bool:
+    # Sleep for 'seconds' or until signal is cancelled
+    # True if slept full duration
+
+    if signal is None:
+        await asyncio.sleep(seconds)
+        return True
+
+    try:
+        await asyncio.wait_for(signal.wait(), timeout=seconds)
+        return False
+    except TimeoutError:
+        return True
 
 
 def normalize_headers(headers: dict[str, Any]) -> dict[str, Any]:

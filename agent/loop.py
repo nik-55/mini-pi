@@ -1,17 +1,24 @@
 from collections.abc import AsyncIterator, Callable
+from typing import Any
 
 from agent.cancellation import CancellationSignal
 from agent.events import (
-    AssistantDoneEvent,
-    AssistantErrorEvent,
-    AgentEvent,
-    MessageEndEvent,
     TextDeltaEvent,
     ThinkingDeltaEvent,
-    ToolExecutionEndEvent,
+    DoneEvent,
+    AgentEvent,
+    AgentStartEvent,
+    AgentEndEvent,
+    MessageStartEvent,
+    MessageUpdateEvent,
+    MessageEndEvent,
     ToolExecutionStartEvent,
+    ToolExecutionEndEvent,
+    TurnStartEvent,
+    TurnEndEvent,
 )
-from agent.messages import (
+from ai.types import (
+    AIModel,
     AgentMessage,
     AssistantMessage,
     ToolResultMessage,
@@ -19,90 +26,124 @@ from agent.messages import (
 )
 from agent.provider import ModelProvider
 from agent.tools import AgentTool
+from agent.validation import validate_tool_arguments
 
 
 async def run_agent_loop(
     provider: ModelProvider,
-    model: str,
+    model: AIModel,
     system: str,
-    messages: list[AgentMessage],
+    messages: list[Any],
     tools: list[AgentTool],
-    max_turns: int = 40,
     signal: CancellationSignal | None = None,
     get_steering_messages: Callable[[], tuple[UserMessage, ...]] = None,
     get_followup_messages: Callable[[], tuple[UserMessage, ...]] = None,
+    # Deliberately set to large number so agent can run for long but limit for how long till we have proper testing
+    max_turns: int = 1000,
+    convert_message_to_llm_compatible: Callable[[list[Any]], list[AgentMessage]] = None,
 ) -> AsyncIterator[AgentEvent]:
     tool_map = {t.name: t for t in tools}
+    # messages: entire session history
+    # new_message_start_index: messages added during this agent run speciafically (i.e from agent_start to agent_end)
+    new_message_start_index = len(messages)
 
     pending_queued_messages = tuple()
+
+    yield AgentStartEvent()
 
     while True:
         is_assistant_done = False
         turn = 0
 
         while (not is_assistant_done) or len(pending_queued_messages) > 0:
-            if turn >= max_turns:
-                return
-
             turn += 1
+            yield TurnStartEvent()
 
-            if signal is not None and signal.is_cancelled():
+            if turn > max_turns or (signal is not None and signal.is_cancelled()):
+                assistant_message = AssistantMessage(
+                    stop_reason="aborted",
+                    error_message=(
+                        "Operation cancelled"
+                        if turn < max_turns
+                        else "Max turn reached"
+                    ),
+                )
+                messages.append(assistant_message)
+                yield MessageStartEvent(message=assistant_message)
+                yield MessageEndEvent(message=assistant_message)
+
+                yield TurnEndEvent(message=assistant_message, tool_results=[])
+                yield AgentEndEvent(messages=messages[new_message_start_index:])
                 return
 
             for msg in pending_queued_messages:
                 messages.append(msg)
+                yield MessageStartEvent(message=msg)
                 yield MessageEndEvent(message=msg)
 
             pending_queued_messages = tuple()
 
             assistant_message: AssistantMessage | None = None
 
+            yield MessageStartEvent(message=AssistantMessage())
+
             stream = provider.stream_response(
                 model=model,
                 system=system,
-                messages=messages,
+                messages=(
+                    convert_message_to_llm_compatible(messages)
+                    if convert_message_to_llm_compatible
+                    else messages
+                ),
                 tools=tools,
+                signal=signal,
             )
 
             async for event in stream:
                 if signal is not None and signal.is_cancelled():
-                    return
+                    assistant_message = AssistantMessage(
+                        stop_reason="aborted",
+                        error_message="Operation cancelled",
+                    )
+                    break
 
-                if isinstance(event, TextDeltaEvent):
-                    yield event
-                elif isinstance(event, ThinkingDeltaEvent):
-                    yield event
-                elif isinstance(event, AssistantDoneEvent):
+                if isinstance(event, (TextDeltaEvent, ThinkingDeltaEvent)):
+                    yield MessageUpdateEvent(assistant_message_event=event)
+                elif isinstance(event, DoneEvent):
                     assistant_message = event.message
-                    yield event
-                elif isinstance(event, AssistantErrorEvent):
-                    yield event
-                    return
 
             if assistant_message is None:
-                yield AssistantErrorEvent(error="No assistant message received")
-                return
+                assistant_message = AssistantMessage(
+                    stop_reason="error",
+                    error_message="No assistant message received",
+                )
 
             messages.append(assistant_message)
             yield MessageEndEvent(message=assistant_message)
+
+            if assistant_message.stop_reason in ("error", "aborted"):
+                yield TurnEndEvent(message=assistant_message, tool_results=[])
+                yield AgentEndEvent(messages=messages[new_message_start_index:])
+                return
 
             is_assistant_done = (
                 True if len(assistant_message.tool_calls) == 0 else False
             )
 
             is_truncated = assistant_message.stop_reason == "length"
+            tool_result_message_start_index = len(messages)
 
             for tool_call in assistant_message.tool_calls:
-                if signal is not None and signal.is_cancelled():
-                    return
-
                 yield ToolExecutionStartEvent(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.name,
                     arguments=tool_call.arguments,
                 )
 
-                if is_truncated:
+                if signal is not None and signal.is_cancelled():
+                    content = "Operation cancelled"
+                    is_error = True
+                elif is_truncated:
                     content = (
                         f"Tool call '{tool_call.name}' was not executed: the response hit the output token limit, "
                         "so its arguments may be truncated. Re-issue the tool call with complete arguments."
@@ -116,18 +157,22 @@ async def run_agent_loop(
                         is_error = True
                     else:
                         try:
+                            validate_tool_arguments(
+                                tool.parameters,
+                                tool_call.arguments,
+                            )
                             content = await tool.execute(
                                 tool_call.arguments, signal=signal
                             )
                             is_error = False
-                        except Exception as exc:
+                        except (Exception,) as exc:
                             content = f"Error executing tool '{tool_call.name}': {exc}"
                             is_error = True
 
                 tool_result_message = ToolResultMessage(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.name,
-                    content=content[:10_000],
+                    content=content,
                     is_error=is_error,
                 )
 
@@ -140,8 +185,13 @@ async def run_agent_loop(
                     is_error=is_error,
                 )
 
+                yield MessageStartEvent(message=tool_result_message)
                 yield MessageEndEvent(message=tool_result_message)
 
+            yield TurnEndEvent(
+                message=assistant_message,
+                tool_results=messages[tool_result_message_start_index:],
+            )
             pending_queued_messages = (
                 get_steering_messages() if get_steering_messages else tuple()
             )
@@ -152,3 +202,5 @@ async def run_agent_loop(
 
         if len(pending_queued_messages) == 0:
             break
+
+    yield AgentEndEvent(messages=messages[new_message_start_index:])
