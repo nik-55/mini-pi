@@ -3,7 +3,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
-from ai.types import AgentMessage, AssistantMessage, ToolResultMessage
+from ai.types import (
+    Message,
+    AssistantMessage,
+    AssistantMessageEvent,
+    ToolResultMessage,
+)
 
 # Events: Agent Loop needs to broadcast state transitions in real time so different subscriber can act accordingly
 #
@@ -33,11 +38,7 @@ from ai.types import AgentMessage, AssistantMessage, ToolResultMessage
 # so we emit message_start and message_end immediately
 
 
-class EventTypes(StrEnum):
-    TEXT_DELTA = "text_delta"
-    THINKING_DELTA = "thinking_delta"
-    DONE = "DONE"
-
+class AgentEventTypes(StrEnum):
     AGENT_START = "agent_start"
     AGENT_END = "agent_end"
 
@@ -52,79 +53,57 @@ class EventTypes(StrEnum):
     TOOL_EXECUTION_END = "tool_execution_end"
 
 
-# LLM Provider Streaming Events
-
-
-class TextDeltaEvent(BaseModel):
-    type: Literal[EventTypes.TEXT_DELTA] = EventTypes.TEXT_DELTA
-    delta: str
-
-
-class ThinkingDeltaEvent(BaseModel):
-    type: Literal[EventTypes.THINKING_DELTA] = EventTypes.THINKING_DELTA
-    delta: str
-
-
-AssistantMessageEvent = Annotated[
-    TextDeltaEvent | ThinkingDeltaEvent,
-    Field(discriminator="type"),
-]
-
-
-# Internal LLM Provider to loop signal when llm provider is done streaming
-# Not meant to be send outside
-class DoneEvent(BaseModel):
-    type: Literal[EventTypes.DONE] = EventTypes.DONE
-    message: AssistantMessage
-
-
 # Agent Loop Event
 
 
 class AgentStartEvent(BaseModel):
-    type: Literal[EventTypes.AGENT_START] = EventTypes.AGENT_START
+    type: Literal[AgentEventTypes.AGENT_START] = AgentEventTypes.AGENT_START
 
 
 class AgentEndEvent(BaseModel):
-    type: Literal[EventTypes.AGENT_END] = EventTypes.AGENT_END
-    messages: list[AgentMessage] = Field(default_factory=list)
+    type: Literal[AgentEventTypes.AGENT_END] = AgentEventTypes.AGENT_END
+    messages: list[Message] = Field(default_factory=list)
 
 
 class TurnStartEvent(BaseModel):
-    type: Literal[EventTypes.TURN_START] = EventTypes.TURN_START
+    type: Literal[AgentEventTypes.TURN_START] = AgentEventTypes.TURN_START
 
 
 class TurnEndEvent(BaseModel):
-    type: Literal[EventTypes.TURN_END] = EventTypes.TURN_END
+    type: Literal[AgentEventTypes.TURN_END] = AgentEventTypes.TURN_END
     message: AssistantMessage
     tool_results: list[ToolResultMessage] = Field(default_factory=list)
 
 
 class MessageStartEvent(BaseModel):
-    type: Literal[EventTypes.MESSAGE_START] = EventTypes.MESSAGE_START
-    message: AgentMessage
+    type: Literal[AgentEventTypes.MESSAGE_START] = AgentEventTypes.MESSAGE_START
+    message: Message
 
 
 # Required only for assistant message as it streams
 class MessageUpdateEvent(BaseModel):
-    type: Literal[EventTypes.MESSAGE_UPDATE] = EventTypes.MESSAGE_UPDATE
+    type: Literal[AgentEventTypes.MESSAGE_UPDATE] = AgentEventTypes.MESSAGE_UPDATE
     assistant_message_event: AssistantMessageEvent
 
 
 class MessageEndEvent(BaseModel):
-    type: Literal[EventTypes.MESSAGE_END] = EventTypes.MESSAGE_END
-    message: AgentMessage
+    type: Literal[AgentEventTypes.MESSAGE_END] = AgentEventTypes.MESSAGE_END
+    message: Message
 
 
 class ToolExecutionStartEvent(BaseModel):
-    type: Literal[EventTypes.TOOL_EXECUTION_START] = EventTypes.TOOL_EXECUTION_START
+    type: Literal[AgentEventTypes.TOOL_EXECUTION_START] = (
+        AgentEventTypes.TOOL_EXECUTION_START
+    )
     tool_call_id: str
     tool_name: str
     arguments: dict[str, Any]
 
 
 class ToolExecutionEndEvent(BaseModel):
-    type: Literal[EventTypes.TOOL_EXECUTION_END] = EventTypes.TOOL_EXECUTION_END
+    type: Literal[AgentEventTypes.TOOL_EXECUTION_END] = (
+        AgentEventTypes.TOOL_EXECUTION_END
+    )
     tool_call_id: str
     tool_name: str
     result: str

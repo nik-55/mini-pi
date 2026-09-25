@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from agent.cancellation import CancellationSignal
+from ai.cancellation import CancellationSignal
 
 # 4xx class means Client error: the request itself is wrong
 # 400 Bad request = json payload or invalid parameters

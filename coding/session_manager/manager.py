@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
-from ai.types import AgentMessage, MessageType, ThinkingLevel
+from ai.types import Message, MessageType, ThinkingLevel
 from coding.session_manager.entries import (
     CompactionEntry,
     MessageEntry,
@@ -232,7 +232,7 @@ class ChatSessionManager:
 
         self._persist(entry)
 
-    def append_message(self, message: AgentMessage) -> str:
+    def append_message(self, message: Message) -> str:
         entry = MessageEntry(parent_id=self.leaf_id, message=message)
         self._append_entry(entry)
         return entry.id

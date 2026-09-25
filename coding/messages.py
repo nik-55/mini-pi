@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-from ai.types import AgentMessage, UserMessage
+from ai.types import Message, UserMessage
 
 
 class CompactionSummaryMessage(BaseModel):
@@ -14,14 +14,14 @@ class CompactionSummaryMessage(BaseModel):
 
 
 SessionMessage = Annotated[
-    AgentMessage | CompactionSummaryMessage,
+    Message | CompactionSummaryMessage,
     Field(discriminator="role"),
 ]
 
 
 # Convert Session messages to AI layer compatible messages
-def convert_message_to_llm_compatible(messages: list[SessionMessage]) -> list[AgentMessage]:
-    results: list[AgentMessage] = []
+def convert_message_to_llm_compatible(messages: list[SessionMessage]) -> list[Message]:
+    results: list[Message] = []
 
     for m in messages:
         if isinstance(m, CompactionSummaryMessage):

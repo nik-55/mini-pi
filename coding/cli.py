@@ -3,14 +3,15 @@ import sys
 
 from dotenv import load_dotenv
 
-from agent.events import EventTypes
 from ai.types import (
-    AgentMessage,
+    Message,
     AssistantMessage,
     MessageType,
     ToolResultMessage,
     UserMessage,
+    EventTypes,
 )
+from agent.events import AgentEventTypes
 
 from coding.command_factory import build_command_registry
 from coding.commands import CommandRegistry, CommandResult
@@ -25,7 +26,7 @@ def clear_screen():
     sys.stdout.flush()
 
 
-def print_session_history(messages: list[AgentMessage]):
+def print_session_history(messages: list[Message]):
     for msg in messages:
         if isinstance(msg, UserMessage):
             print(f"user> {msg.content}\n")
@@ -187,7 +188,7 @@ async def main():
 
         try:
             async for event in coding_session.prompt(user_input):
-                if event.type == EventTypes.MESSAGE_UPDATE:
+                if event.type == AgentEventTypes.MESSAGE_UPDATE:
                     delta_event = event.assistant_message_event
 
                     if delta_event.type == EventTypes.THINKING_DELTA:
@@ -203,12 +204,12 @@ async def main():
                     if delta_event.type == EventTypes.TEXT_DELTA:
                         print(delta_event.delta, end="", flush=True)
 
-                elif event.type == EventTypes.TOOL_EXECUTION_START:
+                elif event.type == AgentEventTypes.TOOL_EXECUTION_START:
                     print(
                         f"\n\n[Tool Call: {event.tool_name}({event.arguments})]\n",
                         flush=True,
                     )
-                elif event.type == EventTypes.TOOL_EXECUTION_END:
+                elif event.type == AgentEventTypes.TOOL_EXECUTION_END:
                     snippet = event.result[:200] + (
                         "..." if len(event.result) > 200 else ""
                     )
@@ -216,7 +217,7 @@ async def main():
                         f"\n\n[Tool Output {event.tool_name}: {snippet.strip()}]\n",
                         flush=True,
                     )
-                elif event.type == EventTypes.MESSAGE_END:
+                elif event.type == AgentEventTypes.MESSAGE_END:
                     if in_thinking:
                         in_thinking = False
 

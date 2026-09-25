@@ -1,11 +1,20 @@
 from collections.abc import AsyncIterator, Callable
-from typing import Any
 
-from agent.cancellation import CancellationSignal
-from agent.events import (
+from agent.types import AgentMessage
+from ai.cancellation import CancellationSignal
+from ai.types import (
+    Context,
+    StreamOptions,
     TextDeltaEvent,
     ThinkingDeltaEvent,
     DoneEvent,
+    AIModel,
+    Message,
+    AssistantMessage,
+    ToolResultMessage,
+    UserMessage,
+)
+from agent.events import (
     AgentEvent,
     AgentStartEvent,
     AgentEndEvent,
@@ -17,30 +26,25 @@ from agent.events import (
     TurnStartEvent,
     TurnEndEvent,
 )
-from ai.types import (
-    AIModel,
-    AgentMessage,
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
-from agent.provider import ModelProvider
+from ai.provider import StreamFunction
+from ai.validation import validate_tool_arguments
 from agent.tools import AgentTool
-from agent.validation import validate_tool_arguments
 
 
-async def run_agent_loop(
-    provider: ModelProvider,
+async def run_agent_loop[CustomMessage](
+    stream_fn: StreamFunction,
     model: AIModel,
     system: str,
-    messages: list[Any],
+    messages: list[AgentMessage[CustomMessage]],
     tools: list[AgentTool],
     signal: CancellationSignal | None = None,
     get_steering_messages: Callable[[], tuple[UserMessage, ...]] = None,
     get_followup_messages: Callable[[], tuple[UserMessage, ...]] = None,
     # Deliberately set to large number so agent can run for long but limit for how long till we have proper testing
     max_turns: int = 1000,
-    convert_message_to_llm_compatible: Callable[[list[Any]], list[AgentMessage]] = None,
+    convert_message_to_llm_compatible: Callable[
+        [list[AgentMessage[CustomMessage]]], list[Message]
+    ] = None,
 ) -> AsyncIterator[AgentEvent]:
     tool_map = {t.name: t for t in tools}
     # messages: entire session history
@@ -87,16 +91,20 @@ async def run_agent_loop(
 
             yield MessageStartEvent(message=AssistantMessage())
 
-            stream = provider.stream_response(
-                model=model,
-                system=system,
-                messages=(
-                    convert_message_to_llm_compatible(messages)
-                    if convert_message_to_llm_compatible
-                    else messages
+            stream = stream_fn(
+                model,
+                Context(
+                    system=system,
+                    messages=(
+                        convert_message_to_llm_compatible(messages)
+                        if convert_message_to_llm_compatible
+                        else messages
+                    ),
+                    tools=tools,
                 ),
-                tools=tools,
-                signal=signal,
+                StreamOptions(
+                    signal=signal,
+                ),
             )
 
             async for event in stream:

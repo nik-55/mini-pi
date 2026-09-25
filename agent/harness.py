@@ -3,7 +3,8 @@ from dataclasses import dataclass, field
 import inspect
 from typing import Any, Optional
 
-from agent.cancellation import CancellationSignal
+from agent.types import AgentMessage
+from ai.cancellation import CancellationSignal
 from agent.events import (
     AgentEndEvent,
     AgentEvent,
@@ -12,27 +13,29 @@ from agent.events import (
     TurnEndEvent,
 )
 from agent.loop import run_agent_loop
-from ai.types import AIModel, AgentMessage, AssistantMessage, UserMessage
-from agent.provider import ModelProvider
+from ai.types import AIModel, Message, AssistantMessage, UserMessage
+from ai.provider import StreamFunction
 from agent.queue import MessageQueueHandler
 from agent.tools import AgentTool
 
 
 @dataclass
-class AgentHarnessConfig:
-    provider: ModelProvider
+class AgentHarnessConfig[CustomMessage]:
+    stream_fn: StreamFunction
     model: AIModel
     system: str
     tools: list[AgentTool] = field(default_factory=list)
     max_turns: int = 40
-    convert_message_to_llm_compatible: Callable[[list[Any]], list[AgentMessage]] = None
+    convert_message_to_llm_compatible: (
+        Callable[[list[AgentMessage[CustomMessage]]], list[Message]] | None
+    ) = None
 
 
-class AgentHarness:
+class AgentHarness[CustomMessage]:
     def __init__(
         self,
-        config: AgentHarnessConfig,
-        messages: Optional[list[Any]] = None,
+        config: AgentHarnessConfig[CustomMessage],
+        messages: Optional[list[AgentMessage[CustomMessage]]] = None,
     ):
         self.messages = messages or []
         self.config = config
@@ -41,10 +44,10 @@ class AgentHarness:
         self.is_running: bool = False
         self.msg_queue_when_running = MessageQueueHandler()
 
-    def append_message(self, message: Any) -> None:
+    def append_message(self, message: AgentMessage[CustomMessage]) -> None:
         self.messages.append(message)
 
-    def replace_messages(self, messages: list[Any]) -> None:
+    def replace_messages(self, messages: list[AgentMessage[CustomMessage]]) -> None:
         self.messages = list(messages)
 
     def subscribe(self, listener: Callable[[AgentEvent], Any]) -> Callable[[], None]:
@@ -95,7 +98,7 @@ class AgentHarness:
 
         try:
             async for event in run_agent_loop(
-                provider=self.config.provider,
+                stream_fn=self.config.stream_fn,
                 model=self.config.model,
                 system=self.config.system,
                 messages=self.messages,

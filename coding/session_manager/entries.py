@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from ai.types import AgentMessage, ThinkingLevel
+from ai.types import Message, ThinkingLevel
 
 
 class SessionType(StrEnum):
@@ -43,7 +43,7 @@ class BaseSessionEntry(BaseEntry):
 
 class MessageEntry(BaseSessionEntry):
     type: Literal[SessionType.MESSAGE] = SessionType.MESSAGE
-    message: AgentMessage
+    message: Message
 
 
 class ModelChangeEntry(BaseSessionEntry):

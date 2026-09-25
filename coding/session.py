@@ -4,11 +4,11 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from agent.cancellation import CancellationSignal
+from ai.cancellation import CancellationSignal
 from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
-from agent.provider import ModelProvider
 from agent.tools import AgentTool
+from ai.registry import stream
 from ai.types import AIModel, AssistantMessage
 from coding.compaction.compaction import (
     format_file_operations,
@@ -38,7 +38,6 @@ from coding.session_manager.traversal import entries_by_id
 
 @dataclass
 class CodingSessionConfig:
-    provider: ModelProvider
     model: AIModel
     system: str
     chat_session_manager: ChatSessionManager
@@ -57,7 +56,7 @@ class CodingSession:
     def __init__(
         self,
         config: CodingSessionConfig,
-        harness: AgentHarness,
+        harness: AgentHarness[SessionMessage],
         chat_session_manager: ChatSessionManager,
     ):
         self.config = config
@@ -92,8 +91,8 @@ class CodingSession:
                 config.extension_runtime.wrap_tool(t) for t in tool_map.values()
             ]
 
-        harness_config = AgentHarnessConfig(
-            provider=config.provider,
+        harness_config = AgentHarnessConfig[SessionMessage](
+            stream_fn=stream,
             model=config.model,
             system=config.system,
             tools=effective_tools,
@@ -101,7 +100,9 @@ class CodingSession:
             convert_message_to_llm_compatible=convert_message_to_llm_compatible,
         )
 
-        harness = AgentHarness(config=harness_config, messages=context.messages)
+        harness = AgentHarness[SessionMessage](
+            config=harness_config, messages=context.messages
+        )
 
         return cls(
             config=config,
@@ -109,17 +110,10 @@ class CodingSession:
             chat_session_manager=chat_session_manager,
         )
 
-    def set_model(self, model: AIModel, provider: ModelProvider) -> None:
+    def set_model(self, model: AIModel) -> None:
         # TODO
         self.config.model = model
-        self.config.provider = provider
         self.harness.config.model = model
-        self.harness.config.provider = provider
-
-    def set_api_key(self, api_key: str) -> None:
-        # TODO
-        self.config.provider.api_key = api_key
-        self.harness.config.provider.api_key = api_key
 
     # def subscribe(self, listener: Callable[[SessionEvent], Any]) -> Callable[[], None]:
     #     self._listerners.append(listener)
@@ -307,7 +301,7 @@ class CodingSession:
                 return
 
             summary = await generate_compaction_summary(
-                provider=self.config.provider,
+                stream_fn=self.harness.config.stream_fn,
                 model=self.config.model,
                 messages_to_summarize=preparation.messages_to_summarize,
                 previous_summary=preparation.previous_summary,
