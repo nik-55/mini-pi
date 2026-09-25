@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from ai.registry import get_api_key, get_model
 from coding.auth import remove_api_key_from_auth, set_api_key_to_auth
+from coding.events import SessionEvent
 from coding.extensions.types import ExtensionUIContext
 from coding.session_manager.manager import ChatSessionManager, list_sessions
 from coding.rpc_types import (
@@ -48,9 +49,8 @@ def emit(obj: dict):
     _out.flush()
 
 
-async def run_loop(coding_session: CodingSession, text: str):
-    async for event in coding_session.prompt(text):
-        emit(event.model_dump(mode="json"))
+def write_event(event: SessionEvent) -> None:
+    emit(event.model_dump(mode="json"))
 
 
 def send_response(resp: RpcResponse):
@@ -105,6 +105,7 @@ async def main():
     config.extension_runtime.context.ui = RpcExtensionUI(pending_ui_tasks)
 
     coding_session = await CodingSession.load(config)
+    session_unsubscribe = coding_session.subscribe(write_event)
 
     # empty Stream reader buffer in memory not pointed to any fd yet
     reader = asyncio.StreamReader()
@@ -118,11 +119,8 @@ async def main():
 
     is_running = lambda: loop_task is not None and not loop_task.done()
 
-    while True:
-        line = await reader.readline()
-
-        if not line:
-            break
+    async def handle_line(line: bytes):
+        nonlocal coding_session, session_unsubscribe, loop_task
 
         try:
             rpc_client_msg = json.loads(line)
@@ -133,7 +131,7 @@ async def main():
                     error=f"Invalid json: {exc}",
                 )
             )
-            continue
+            return
 
         # Check if it is extension UI response
         if (
@@ -150,7 +148,7 @@ async def main():
             except Exception as exc:
                 pass
 
-            continue
+            return
 
         try:
             rpc_request = rpc_request_adapter.validate_python(rpc_client_msg)
@@ -167,7 +165,7 @@ async def main():
                     error=f"Invalid request: {exc}",
                 )
             )
-            continue
+            return
 
         if isinstance(rpc_request, MessageRequest):
             if rpc_request.type == RequestTypes.PROMPT:
@@ -179,27 +177,21 @@ async def main():
                             error="Agent is already running",
                         )
                     )
-                    continue
+                    return
 
                 loop_task = asyncio.create_task(
-                    run_loop(
-                        coding_session,
-                        text=rpc_request.message,
+                    coding_session.prompt(
+                        content=rpc_request.message,
                     )
                 )
             elif rpc_request.type == RequestTypes.STEER:
-                async for _ in coding_session.prompt(
+                await coding_session.steer(
                     rpc_request.message,
-                    streaming_behaviour="steer",
-                ):
-                    pass
+                )
             elif rpc_request.type == RequestTypes.FOLLOW_UP:
-                async for _ in coding_session.prompt(
+                await coding_session.follow_up(
                     rpc_request.message,
-                    streaming_behaviour="follow_up",
-                ):
-                    pass
-
+                )
             send_response(
                 EmptySuccessResponse(
                     request_type=rpc_request.type,
@@ -215,14 +207,13 @@ async def main():
                         error="Agent is already running",
                     )
                 )
-                continue
+                return
 
             try:
-                async for event in coding_session.compact(
+                await coding_session.compact(
                     custom_instructions=rpc_request.custom_instructions,
                     reason="manual",
-                ):
-                    emit(event.model_dump(mode="json"))
+                )
 
                 send_response(
                     EmptySuccessResponse(
@@ -248,7 +239,7 @@ async def main():
                         error="Agent is already running",
                     )
                 )
-                continue
+                return
 
             new_chat_session_manager = ChatSessionManager.search_session(
                 rpc_request.session_id,
@@ -263,10 +254,12 @@ async def main():
                         error=f"No session matching '{rpc_request.session_id}'",
                     )
                 )
-                continue
+                return
 
             config.chat_session_manager = new_chat_session_manager
+            session_unsubscribe()
             coding_session = await CodingSession.load(config)
+            session_unsubscribe = coding_session.subscribe(write_event)
 
             send_response(
                 RpcPayloadResponse(
@@ -287,7 +280,7 @@ async def main():
                         error="Agent is already running",
                     )
                 )
-                continue
+                return
 
             entry_id = rpc_request.entry_id
 
@@ -369,7 +362,7 @@ async def main():
                         error="Agent is running",
                     )
                 )
-                continue
+                return
 
             if rpc_request.type == RequestTypes.LIST_SESSIONS:
                 session_rows = list_sessions()
@@ -393,7 +386,9 @@ async def main():
                     cwd=config.chat_session_manager.cwd
                 )
                 config.chat_session_manager = new_chat_session_manager
+                session_unsubscribe()
                 coding_session = await CodingSession.load(config)
+                session_unsubscribe = coding_session.subscribe(write_event)
                 send_response(
                     RpcPayloadResponse(
                         request_type=RequestTypes.NEW_SESSION,
@@ -420,6 +415,20 @@ async def main():
                         id=rpc_request.id,
                     )
                 )
+
+    line_tasks: set[asyncio.Task] = set()
+    # asyncio.create_task mention to keep reference for the task ourself otherwise
+    # running task can be garbage collected before it finishes
+
+    while True:
+        line = await reader.readline()
+
+        if not line:
+            break
+
+        task = asyncio.create_task(handle_line(line))
+        line_tasks.add(task)
+        task.add_done_callback(line_tasks.discard)
 
     if is_running():
         coding_session.cancel()

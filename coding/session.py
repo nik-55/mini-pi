@@ -1,6 +1,7 @@
-from collections.abc import AsyncIterator
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
+import inspect
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -25,7 +26,6 @@ from coding.extensions.runtime import ExtensionRuntime
 from coding.extensions.types import InputHookResult
 from coding.events import (
     CompactionReason,
-    CompactionEvent,
     CompactionStartEvent,
     CompactionEndEvent,
     SessionEvent,
@@ -65,7 +65,7 @@ class CodingSession:
         self.harness.subscribe(
             self._on_agent_event
         )  # It returns unsubscribe function currently not used
-        # self._listerners: list[Callable[[SessionEvent], Any]] = []
+        self._listerners: list[Callable[[SessionEvent], Any]] = []
         self._compaction_signal: CancellationSignal | None = None
 
     @property
@@ -115,25 +115,25 @@ class CodingSession:
         self.config.model = model
         self.harness.config.model = model
 
-    # def subscribe(self, listener: Callable[[SessionEvent], Any]) -> Callable[[], None]:
-    #     self._listerners.append(listener)
+    def subscribe(self, listener: Callable[[SessionEvent], Any]) -> Callable[[], None]:
+        self._listerners.append(listener)
 
-    #     def unsubscribe() -> None:
-    #         try:
-    #             self._listerners.remove(listener)
-    #         except ValueError:
-    #             pass
+        def unsubscribe() -> None:
+            try:
+                self._listerners.remove(listener)
+            except ValueError:
+                pass
 
-    #     return unsubscribe
+        return unsubscribe
 
-    # async def _notify(self, event: SessionEvent):
-    #     snapshot_listeners = list(self._listerners)
+    async def _notify(self, event: SessionEvent) -> None:
+        snapshot_listeners = list(self._listerners)
 
-    #     for listerner in snapshot_listeners:
-    #         result = listerner(event)
+        for listerner in snapshot_listeners:
+            result = listerner(event)
 
-    #         if inspect.isawaitable(result):
-    #             await result
+            if inspect.isawaitable(result):
+                await result
 
     def _is_usage_stale(self) -> bool:
         # Whether usage is stale
@@ -186,7 +186,7 @@ class CodingSession:
         if isinstance(event, MessageEndEvent):
             self.chat_session_manager.append_message(event.message)
 
-        # await self._notify(event)
+        await self._notify(event)
 
     async def get_rewind_targets(self) -> list[RewindTarget]:
         if self.chat_session_manager.leaf_id is None:
@@ -224,16 +224,26 @@ class CodingSession:
 
         return context.messages
 
-    async def prompt(
-        self,
-        content: str,
-        streaming_behaviour: Literal["steer", "follow_up"] | None = None,
-    ) -> AsyncIterator[SessionEvent]:
-        effective_content = content
+    async def steer(self, content: str) -> None:
+        effective_content = await self._run_input_hooks(content)
 
+        if effective_content is None:
+            return
+
+        self.harness.msg_queue_when_running.steer(effective_content)
+
+    async def follow_up(self, content: str) -> None:
+        effective_content = await self._run_input_hooks(content)
+
+        if effective_content is None:
+            return
+
+        self.harness.msg_queue_when_running.follow_up(effective_content)
+
+    async def _run_input_hooks(self, content: str) -> str | None:
         if self.config.extension_runtime is not None:
             input_result_hook: InputHookResult = (
-                await self.config.extension_runtime.run_input_hooks(effective_content)
+                await self.config.extension_runtime.run_input_hooks(content)
             )
 
             if input_result_hook.action == "handled":
@@ -243,47 +253,49 @@ class CodingSession:
                 input_result_hook.action == "transform"
                 and input_result_hook.text is not None
             ):
-                effective_content = input_result_hook.text
+                return input_result_hook.text
 
+        return content
+
+    async def prompt(
+        self,
+        content: str,
+    ) -> None:
         if self.is_compacting:
             # TODO: we need to inform subscriber that compacting is in progress
             return
 
         if self.harness.is_running:
-            streaming_behaviour = streaming_behaviour or "steer"
+            # TODO: inform agent is already running
+            return
 
-            if streaming_behaviour == "steer":
-                self.harness.msg_queue_when_running.steer(effective_content)
-            elif streaming_behaviour == "follow_up":
-                self.harness.msg_queue_when_running.follow_up(effective_content)
+        effective_content = await self._run_input_hooks(content)
 
+        if effective_content is None:
             return
 
         # Before sending prompt to llm
         if self.should_auto_compact():
-            async for event in self.compact(reason="threshold"):
-                yield event
+            await self.compact(reason="threshold")
 
-        async for event in self.harness.prompt(effective_content):
-            yield event
+        await self.harness.prompt(effective_content)
 
         # After the run
         last = self._last_assistant_message()
 
         if last and last.stop_reason != "aborted" and self.should_auto_compact():
-            async for event in self.compact(reason="threshold"):
-                yield event
+            await self.compact(reason="threshold")
 
     async def compact(
         self,
         reason: CompactionReason,
         custom_instructions: str | None = None,
-    ) -> AsyncIterator[CompactionEvent]:
+    ) -> None:
         if self.harness.is_running or self.is_compacting:
             # TODO
             return
 
-        yield CompactionStartEvent(reason=reason)
+        await self._notify(CompactionStartEvent(reason=reason))
 
         signal = CancellationSignal()
         self._compaction_signal = signal
@@ -297,7 +309,9 @@ class CodingSession:
 
             if preparation is None:
                 # TODO
-                yield CompactionEndEvent(error_message="Unable to find valid cut point")
+                await self._notify(
+                    CompactionEndEvent(error_message="Unable to find valid cut point")
+                )
                 return
 
             summary = await generate_compaction_summary(
@@ -310,7 +324,9 @@ class CodingSession:
             )
 
             if signal.is_cancelled():
-                yield CompactionEndEvent(error_message="Compaction Cancelled")
+                await self._notify(
+                    CompactionEndEvent(error_message="Compaction Cancelled")
+                )
                 return
 
             file_operations_str = format_file_operations(
@@ -328,11 +344,13 @@ class CodingSession:
             context = self.chat_session_manager.build_session_context()
             self.harness.replace_messages(context.messages)
 
-            yield CompactionEndEvent(
-                result=f"Compacted {len(preparation.messages_to_summarize)} messages"
+            await self._notify(
+                CompactionEndEvent(
+                    result=f"Compacted {len(preparation.messages_to_summarize)} messages"
+                )
             )
         except Exception as err:
-            yield CompactionEndEvent(error_message=str(err))
+            await self._notify(CompactionEndEvent(error_message=str(err)))
         finally:
             self._compaction_signal = None
 

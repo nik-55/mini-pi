@@ -15,6 +15,7 @@ from agent.events import AgentEventTypes
 
 from coding.command_factory import build_command_registry
 from coding.commands import CommandRegistry, CommandResult
+from coding.events import SessionEvent
 from coding.extensions.types import ExtensionUIContext
 from coding.session_factory import build_session_config
 from coding.session import CodingSession
@@ -90,6 +91,60 @@ async def main():
         flush=True,
     )
 
+    in_thinking = False
+
+    def print_event(event: SessionEvent) -> None:
+        nonlocal in_thinking
+
+        if event.type == AgentEventTypes.MESSAGE_UPDATE:
+            delta_event = event.assistant_message_event
+
+            if delta_event.type == EventTypes.THINKING_DELTA:
+                if not in_thinking:
+                    print("|start_thinking|\n", end="", flush=True)
+                    in_thinking = True
+
+                print(f"\033[90m{delta_event.delta}\033[0m", end="", flush=True)
+            elif in_thinking:
+                in_thinking = False
+                print("\n|end_thinking|\n\n", end="", flush=True)
+
+            if delta_event.type == EventTypes.TEXT_DELTA:
+                print(delta_event.delta, end="", flush=True)
+
+        elif event.type == AgentEventTypes.TOOL_EXECUTION_START:
+            print(
+                f"\n\n[Tool Call: {event.tool_name}({event.arguments})]\n",
+                flush=True,
+            )
+        elif event.type == AgentEventTypes.TOOL_EXECUTION_END:
+            snippet = event.result[:200] + ("..." if len(event.result) > 200 else "")
+            print(
+                f"\n\n[Tool Output {event.tool_name}: {snippet.strip()}]\n",
+                flush=True,
+            )
+        elif event.type == AgentEventTypes.MESSAGE_END:
+            if in_thinking:
+                in_thinking = False
+
+            if (
+                event.message.role == MessageType.ASSISTANT
+                and event.message.stop_reason in ("error", "aborted")
+            ):
+                print(
+                    f"\n[{event.message.stop_reason.upper()}]: {event.message.error_message}",
+                    flush=True,
+                )
+        elif event.type == "compaction_start":
+            print(f"\n[Compacting ({event.reason})...]", flush=True)
+        elif event.type == "compaction_end":
+            if event.error_message:
+                print(f"\n[Compaction failed: {event.error_message}]", flush=True)
+            else:
+                print(f"\n[{event.result}]", flush=True)
+
+    session_unsubscribe = coding_session.subscribe(print_event)
+
     while True:
         user_input = input("user> ").strip()
 
@@ -114,7 +169,9 @@ async def main():
                     cwd=config.chat_session_manager.cwd
                 )
                 config.chat_session_manager = new_chat_session_manager
+                session_unsubscribe()
                 coding_session = await CodingSession.load(config)
+                session_unsubscribe = coding_session.subscribe(print_event)
                 clear_screen()
                 print(
                     f"\nStarting new session: {config.chat_session_manager.session_id}\n",
@@ -152,7 +209,9 @@ async def main():
                     continue
 
                 config.chat_session_manager = new_chat_session_manager
+                session_unsubscribe()
                 coding_session = await CodingSession.load(config)
+                session_unsubscribe = coding_session.subscribe(print_event)
                 clear_screen()
                 print(
                     f"\nResuming session: {new_chat_session_manager.session_id} with {len(coding_session.harness.messages)} messages\n",
@@ -164,81 +223,18 @@ async def main():
             if command_result.action.action == "compact":
                 instructions = command_result.action.args or None
 
-                async for event in coding_session.compact(
+                await coding_session.compact(
                     custom_instructions=instructions,
                     reason="manual",
-                ):
-
-                    if event.type == "compaction_start":
-                        print(f"\n[Compacting ({event.reason})...]", flush=True)
-                    elif event.type == "compaction_end":
-                        if event.error_message:
-                            print(
-                                f"\n[Compaction failed: {event.error_message}]",
-                                flush=True,
-                            )
-                        else:
-                            print(f"\n[{event.result}]", flush=True)
+                )
 
                 continue
 
         print("assistant> ", end="", flush=True)
-
         in_thinking = False
 
         try:
-            async for event in coding_session.prompt(user_input):
-                if event.type == AgentEventTypes.MESSAGE_UPDATE:
-                    delta_event = event.assistant_message_event
-
-                    if delta_event.type == EventTypes.THINKING_DELTA:
-                        if not in_thinking:
-                            print("|start_thinking|\n", end="", flush=True)
-                            in_thinking = True
-
-                        print(f"\033[90m{delta_event.delta}\033[0m", end="", flush=True)
-                    elif in_thinking:
-                        in_thinking = False
-                        print("\n|end_thinking|\n\n", end="", flush=True)
-
-                    if delta_event.type == EventTypes.TEXT_DELTA:
-                        print(delta_event.delta, end="", flush=True)
-
-                elif event.type == AgentEventTypes.TOOL_EXECUTION_START:
-                    print(
-                        f"\n\n[Tool Call: {event.tool_name}({event.arguments})]\n",
-                        flush=True,
-                    )
-                elif event.type == AgentEventTypes.TOOL_EXECUTION_END:
-                    snippet = event.result[:200] + (
-                        "..." if len(event.result) > 200 else ""
-                    )
-                    print(
-                        f"\n\n[Tool Output {event.tool_name}: {snippet.strip()}]\n",
-                        flush=True,
-                    )
-                elif event.type == AgentEventTypes.MESSAGE_END:
-                    if in_thinking:
-                        in_thinking = False
-
-                    if (
-                        event.message.role == MessageType.ASSISTANT
-                        and event.message.stop_reason in ("error", "aborted")
-                    ):
-                        print(
-                            f"\n[{event.message.stop_reason.upper()}]: {event.message.error_message}",
-                            flush=True,
-                        )
-                elif event.type == "compaction_start":
-                    print(f"\n[Compacting ({event.reason})...]", flush=True)
-                elif event.type == "compaction_end":
-                    if event.error_message:
-                        print(
-                            f"\n[Compaction failed: {event.error_message}]", flush=True
-                        )
-                    else:
-                        print(f"\n[{event.result}]", flush=True)
-
+            await coding_session.prompt(user_input)
         except (KeyboardInterrupt, asyncio.CancelledError):
             print("\n[Interrupted by user]\n", flush=True)
 

@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 import inspect
 from typing import Any, Optional
@@ -44,9 +44,6 @@ class AgentHarness[CustomMessage]:
         self.is_running: bool = False
         self.msg_queue_when_running = MessageQueueHandler()
 
-    def append_message(self, message: AgentMessage[CustomMessage]) -> None:
-        self.messages.append(message)
-
     def replace_messages(self, messages: list[AgentMessage[CustomMessage]]) -> None:
         self.messages = list(messages)
 
@@ -62,6 +59,9 @@ class AgentHarness[CustomMessage]:
         return unsubscribe
 
     async def _notify(self, event: AgentEvent):
+        if isinstance(event, MessageEndEvent):
+            self.messages.append(event.message)
+
         snapshot_listeners = list(self._listeners)
 
         for listener in snapshot_listeners:
@@ -70,27 +70,15 @@ class AgentHarness[CustomMessage]:
             if inspect.isawaitable(result):
                 await result
 
-    async def prompt(self, content: str) -> AsyncIterator[AgentEvent]:
+    async def prompt(self, content: str) -> None:
         if self.is_running:
             raise RuntimeError(
                 "Agent is already running, use msg_queue_when_running to queue messages"
             )
 
-        user_message = UserMessage(content=content)
-        self.append_message(message=user_message)
+        await self._continue(content=content)
 
-        start_event = MessageStartEvent(message=user_message)
-        await self._notify(start_event)
-        yield start_event
-
-        end_event = MessageEndEvent(message=user_message)
-        await self._notify(end_event)
-        yield end_event
-
-        async for event in self._continue():
-            yield event
-
-    async def _continue(self) -> AsyncIterator[AgentEvent]:
+    async def _continue(self, content: str) -> None:
         signal = CancellationSignal()
         self._cancellation_signal = signal
 
@@ -101,7 +89,10 @@ class AgentHarness[CustomMessage]:
                 stream_fn=self.config.stream_fn,
                 model=self.config.model,
                 system=self.config.system,
-                messages=self.messages,
+                messages=list(
+                    self.messages
+                ),  # We dont need deep copy, just dont append to same message list
+                prompts=[UserMessage(content=content)],
                 tools=self.config.tools,
                 max_turns=self.config.max_turns,
                 signal=signal,
@@ -110,7 +101,6 @@ class AgentHarness[CustomMessage]:
                 convert_message_to_llm_compatible=self.config.convert_message_to_llm_compatible,
             ):
                 await self._notify(event)
-                yield event
         except Exception as err:
             last_msg = self.messages[-1] if self.messages else None
             if not (
@@ -121,7 +111,6 @@ class AgentHarness[CustomMessage]:
                     stop_reason="error",
                     error_message=str(err),
                 )
-                self.append_message(failure_message)
 
                 for ev in (
                     MessageStartEvent(message=failure_message),
@@ -130,7 +119,6 @@ class AgentHarness[CustomMessage]:
                     AgentEndEvent(messages=[failure_message]),
                 ):
                     await self._notify(ev)
-                    yield ev
         finally:
             if self._cancellation_signal is signal:
                 self._cancellation_signal = None

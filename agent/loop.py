@@ -36,6 +36,7 @@ async def run_agent_loop[CustomMessage](
     model: AIModel,
     system: str,
     messages: list[AgentMessage[CustomMessage]],
+    prompts: list[AgentMessage[CustomMessage]],
     tools: list[AgentTool],
     signal: CancellationSignal | None = None,
     get_steering_messages: Callable[[], tuple[UserMessage, ...]] = None,
@@ -48,12 +49,18 @@ async def run_agent_loop[CustomMessage](
 ) -> AsyncIterator[AgentEvent]:
     tool_map = {t.name: t for t in tools}
     # messages: entire session history
-    # new_message_start_index: messages added during this agent run speciafically (i.e from agent_start to agent_end)
+    # new_message_start_index: messages added during this agent run speciafically
+    # (i.e from agent_start to agent_end) including the prompts
     new_message_start_index = len(messages)
 
+    messages.extend(prompts)
     pending_queued_messages = tuple()
 
     yield AgentStartEvent()
+
+    for prompt in prompts:
+        yield MessageStartEvent(message=prompt)
+        yield MessageEndEvent(message=prompt)
 
     while True:
         is_assistant_done = False
