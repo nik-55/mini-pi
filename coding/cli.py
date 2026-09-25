@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 import sys
 
 from dotenv import load_dotenv
@@ -13,13 +14,13 @@ from ai.types import (
 )
 from agent.events import AgentEventTypes
 
-from coding.command_factory import build_command_registry
-from coding.commands import CommandRegistry, CommandResult
+from coding.commands import BUILTIN_SLASH_COMMANDS, parse_command
 from coding.events import SessionEvent
 from coding.extensions.types import ExtensionUIContext
 from coding.session_factory import build_session_config
 from coding.session import CodingSession
-from coding.session_manager.manager import ChatSessionManager, list_sessions
+from coding.session_manager.manager import list_sessions
+from coding.session_runtime import CodingSessionRuntime
 
 
 def clear_screen():
@@ -74,20 +75,14 @@ class CliExtensionUI(ExtensionUIContext):
 
 
 async def main():
-    config = await build_session_config(
-        chat_session_manager=ChatSessionManager.new_session()
-    )
+    config = await build_session_config()
 
     # TODO: Should we set context UI directly by assigning?
     config.extension_runtime.context.ui = CliExtensionUI()
-    coding_session = await CodingSession.load(config)
-
-    command_registry: CommandRegistry = build_command_registry(
-        extension_runtime=config.extension_runtime
-    )
+    session_runtime = await CodingSessionRuntime.create(config)
 
     print(
-        f"Mini Pi started with model '{config.model.name}'. Session: {config.chat_session_manager.session_id}.\n",
+        f"Mini Pi started with model '{session_runtime.session.config.model.name}'. Session: {session_runtime.session.chat_session_manager.session_id}.\n",
         flush=True,
     )
 
@@ -143,7 +138,18 @@ async def main():
             else:
                 print(f"\n[{event.result}]", flush=True)
 
-    session_unsubscribe = coding_session.subscribe(print_event)
+    session_unsubscribe: Callable[[], None] | None = None
+
+    def rebind_session(session: CodingSession) -> None:
+        nonlocal session_unsubscribe
+
+        if session_unsubscribe is not None:
+            session_unsubscribe()
+
+        session_unsubscribe = session.subscribe(print_event)
+
+    session_runtime.set_rebind_session(rebind_session)
+    rebind_session(session_runtime.session)
 
     while True:
         user_input = input("user> ").strip()
@@ -151,90 +157,96 @@ async def main():
         if not user_input:
             continue
 
-        command_result: CommandResult = command_registry.execute(text=user_input)
+        name, args = parse_command(user_input)
 
-        if command_result.is_command:
-            if command_result.message:
-                print(f"\n{command_result.message}\n", flush=True)
+        if name == "exit":
+            print("\nGoodBye")
+            break
 
-            if command_result.action is None:
+        if name == "clear":
+            await session_runtime.new_session()
+            clear_screen()
+            print(
+                f"\nStarting new session: {session_runtime.session.chat_session_manager.session_id}\n",
+                flush=True,
+            )
+            continue
+
+        if name == "session":
+            print(
+                f"Active session: {session_runtime.session.chat_session_manager.session_id}",
+                flush=True,
+            )
+            continue
+
+        if name == "resume":
+            if not args:
+                session_rows = list_sessions()
+                print("\nAvaliable Sessions:")
+                for s in session_rows:
+                    print(
+                        f"- {s.updated_at.strftime('%m-%d %H:%M')} | {s.id}",
+                        flush=True,
+                    )
+
+                print("Use `/resume <id>` to switch\n")
                 continue
 
-            if command_result.action.action == "exit":
-                print("\nGoodBye")
-                break
-
-            if command_result.action.action == "clear":
-                new_chat_session_manager = ChatSessionManager.new_session(
-                    cwd=config.chat_session_manager.cwd
-                )
-                config.chat_session_manager = new_chat_session_manager
-                session_unsubscribe()
-                coding_session = await CodingSession.load(config)
-                session_unsubscribe = coding_session.subscribe(print_event)
-                clear_screen()
-                print(
-                    f"\nStarting new session: {config.chat_session_manager.session_id}\n",
-                    flush=True,
-                )
+            try:
+                await session_runtime.switch_session(args)
+            except ValueError as err:
+                print(err, flush=True)
                 continue
 
-            if command_result.action.action == "session":
-                print(
-                    f"Active session: {config.chat_session_manager.session_id}",
-                    flush=True,
-                )
-                continue
+            clear_screen()
+            print(
+                f"\nResuming session: {session_runtime.session.chat_session_manager.session_id} with {len(session_runtime.session.harness.messages)} messages\n",
+                flush=True,
+            )
+            print_session_history(session_runtime.session.harness.messages)
+            continue
 
-            if command_result.action.action == "resume":
-                args = command_result.action.args
+        if name == "compact":
+            instructions = args or None
 
-                if not args:
-                    session_rows = list_sessions()
-                    print("\nAvaliable Sessions:")
-                    for s in session_rows:
-                        print(
-                            f"- {s.updated_at.strftime('%m-%d %H:%M')} | {s.id}",
-                            flush=True,
-                        )
+            await session_runtime.session.compact(
+                custom_instructions=instructions,
+                reason="manual",
+            )
 
-                    print("Use `/resume <id>` to switch\n")
-                    continue
+            continue
 
-                new_chat_session_manager = ChatSessionManager.search_session(
-                    args, cwd=config.chat_session_manager.cwd
-                )
-                if new_chat_session_manager is None:
-                    print(f"No session with '{args}'", flush=True)
-                    continue
+        if name == "help":
+            lines = []
 
-                config.chat_session_manager = new_chat_session_manager
-                session_unsubscribe()
-                coding_session = await CodingSession.load(config)
-                session_unsubscribe = coding_session.subscribe(print_event)
-                clear_screen()
-                print(
-                    f"\nResuming session: {new_chat_session_manager.session_id} with {len(coding_session.harness.messages)} messages\n",
-                    flush=True,
-                )
-                print_session_history(coding_session.harness.messages)
-                continue
+            if len(BUILTIN_SLASH_COMMANDS) > 0:
+                lines.append("Available built in commands")
 
-            if command_result.action.action == "compact":
-                instructions = command_result.action.args or None
+            for c in BUILTIN_SLASH_COMMANDS:
+                hint = f" {c.argument_hint}" if c.argument_hint else ""
+                lines.append(f" /{c.name}{hint} - {c.description}")
 
-                await coding_session.compact(
-                    custom_instructions=instructions,
-                    reason="manual",
-                )
+            extension_runtime = session_runtime.session.config.extension_runtime
 
-                continue
+            if extension_runtime is not None:
+                builtin_names = {c.name for c in BUILTIN_SLASH_COMMANDS}
+                extension_commands = extension_runtime.get_all_commands()
+
+                if len(extension_commands) > 0:
+                    lines.append("Available extension commands")
+
+                for c in extension_commands:
+                    if c.name not in builtin_names:
+                        lines.append(f" /{c.name} - {c.description}")
+
+            print("\n" + "\n".join(lines) + "\n", flush=True)
+            continue
 
         print("assistant> ", end="", flush=True)
         in_thinking = False
 
         try:
-            await coding_session.prompt(user_input)
+            await session_runtime.session.prompt(user_input)
         except (KeyboardInterrupt, asyncio.CancelledError):
             print("\n[Interrupted by user]\n", flush=True)
 

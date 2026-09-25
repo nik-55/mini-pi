@@ -53,7 +53,7 @@ export interface GeneralRequest {
     | "get_state"
     | "list_sessions"
     | "get_rewind_targets"
-    | "get_commands";
+    | "get_extension_commands";
 }
 
 export type RpcRequest =
@@ -101,6 +101,15 @@ export interface RewindTargetsData {
 //     response: string;
 // }
 
+export interface ExtensionCommandInfo {
+    name: string;
+    description: string;
+}
+
+export interface ExtensionCommandsData {
+    commands: ExtensionCommandInfo[];
+}
+
 // RPC Server Response
 
 export type RpcSuccessResponse =
@@ -114,7 +123,8 @@ export type RpcSuccessResponse =
     | { id?: string; type: "response"; request_type: "get_rewind_targets"; success: true; data: RewindTargetsData; }
     | { id?: string; type: "response"; request_type: "login"; success: true; }
     | { id?: string; type: "response"; request_type: "logout"; success: true; }
-    | { id?: string; type: "response"; request_type: "set_default_model"; success: true; };
+    | { id?: string; type: "response"; request_type: "set_default_model"; success: true; }
+    | { id?: string; type: "response"; request_type: "get_extension_commands"; success: true; data: ExtensionCommandsData; };
 
 export interface RpcErrorResponse {
     id?: string;

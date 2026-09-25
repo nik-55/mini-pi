@@ -1,7 +1,7 @@
 import { ChildProcess, spawn } from "node:child_process";
 import readline from "node:readline";
 import type { AgentEvent } from "./types/events.js";
-import type { ExtensionUIRequest, ExtensionUIResponse, RewindTargetsData, RpcRequest, RpcResponse, SessionData, SessionListData, SessionState } from "./types/rpc.js";
+import type { ExtensionCommandsData, ExtensionUIRequest, ExtensionUIResponse, RewindTargetsData, RpcRequest, RpcResponse, SessionData, SessionListData, SessionState } from "./types/rpc.js";
 
 function getPythonBin(): string {
     const project_root_dir_path = new URL("../../..", import.meta.url).pathname;
@@ -207,6 +207,10 @@ export class RpcClient {
 
     async setDefaultModel(model_ref: string): Promise<void> {
         return this.send<void>({ type: "set_default_model", model_ref });
+    }
+
+    async getExtensionCommands(): Promise<ExtensionCommandsData> {
+        return this.send<ExtensionCommandsData>({ "type": "get_extension_commands" });
     }
 
     // Abort

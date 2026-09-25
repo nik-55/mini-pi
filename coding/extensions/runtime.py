@@ -2,9 +2,9 @@ import inspect
 from typing import Any
 
 from agent.tools import AgentTool
-from coding.commands import SlashCommand
 from coding.extensions.api import ExtensionAPI
 from coding.extensions.types import (
+    ExtensionCommand,
     ExtensionContext,
     HookHandler,
     InputHookPayload,
@@ -40,13 +40,20 @@ class ExtensionRuntime:
 
         return tools
 
-    def get_all_commands(self) -> list[SlashCommand]:
-        commands: list[SlashCommand] = []
+    def get_all_commands(self) -> list[ExtensionCommand]:
+        commands: list[ExtensionCommand] = []
 
         for ext in self.extensions:
             commands.extend(ext.commands)
 
         return commands
+
+    def get_command(self, name: str) -> ExtensionCommand | None:
+        for c in self.get_all_commands():
+            if c.name == name:
+                return c
+
+        return
 
     async def _invoke_hook_handler(self, handler: HookHandler, payload: Any) -> Any:
         res = handler(payload, self.context)

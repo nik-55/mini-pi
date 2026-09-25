@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 import json
 import sys
 import uuid
@@ -9,10 +10,12 @@ from ai.registry import get_api_key, get_model
 from coding.auth import remove_api_key_from_auth, set_api_key_to_auth
 from coding.events import SessionEvent
 from coding.extensions.types import ExtensionUIContext
-from coding.session_manager.manager import ChatSessionManager, list_sessions
+from coding.session_manager.manager import list_sessions
 from coding.rpc_types import (
     CompactRequest,
     EmptySuccessResponse,
+    ExtensionCommandInfo,
+    ExtensionCommandsData,
     GeneralRequest,
     LoginRequest,
     LogoutRequest,
@@ -36,6 +39,7 @@ from coding.rpc_types import (
 )
 from coding.session import CodingSession
 from coding.session_factory import build_session_config
+from coding.session_runtime import CodingSessionRuntime
 from coding.settings import set_default_model
 
 _out = sys.stdout  # _out = fd_1
@@ -98,14 +102,23 @@ class RpcExtensionUI(ExtensionUIContext):
 
 
 async def main():
-    config = await build_session_config(
-        chat_session_manager=ChatSessionManager.new_session()
-    )
+    session_unsubscribe: Callable[[], None] | None = None
+
+    def rebind_session(session: CodingSession) -> None:
+        nonlocal session_unsubscribe
+
+        if session_unsubscribe is not None:
+            session_unsubscribe()
+
+        session_unsubscribe = session.subscribe(write_event)
+
+    config = await build_session_config()
     pending_ui_tasks: dict[str, asyncio.Future[ExtensionUIResponse]] = {}
     config.extension_runtime.context.ui = RpcExtensionUI(pending_ui_tasks)
 
-    coding_session = await CodingSession.load(config)
-    session_unsubscribe = coding_session.subscribe(write_event)
+    session_runtime = await CodingSessionRuntime.create(config)
+    session_runtime.set_rebind_session(rebind_session)
+    rebind_session(session_runtime.session)
 
     # empty Stream reader buffer in memory not pointed to any fd yet
     reader = asyncio.StreamReader()
@@ -120,7 +133,7 @@ async def main():
     is_running = lambda: loop_task is not None and not loop_task.done()
 
     async def handle_line(line: bytes):
-        nonlocal coding_session, session_unsubscribe, loop_task
+        nonlocal loop_task
 
         try:
             rpc_client_msg = json.loads(line)
@@ -180,16 +193,16 @@ async def main():
                     return
 
                 loop_task = asyncio.create_task(
-                    coding_session.prompt(
+                    session_runtime.session.prompt(
                         content=rpc_request.message,
                     )
                 )
             elif rpc_request.type == RequestTypes.STEER:
-                await coding_session.steer(
+                await session_runtime.session.steer(
                     rpc_request.message,
                 )
             elif rpc_request.type == RequestTypes.FOLLOW_UP:
-                await coding_session.follow_up(
+                await session_runtime.session.follow_up(
                     rpc_request.message,
                 )
             send_response(
@@ -210,7 +223,7 @@ async def main():
                 return
 
             try:
-                await coding_session.compact(
+                await session_runtime.session.compact(
                     custom_instructions=rpc_request.custom_instructions,
                     reason="manual",
                 )
@@ -241,33 +254,25 @@ async def main():
                 )
                 return
 
-            new_chat_session_manager = ChatSessionManager.search_session(
-                rpc_request.session_id,
-                cwd=config.chat_session_manager.cwd,
-            )
-
-            if new_chat_session_manager is None:
+            try:
+                await session_runtime.switch_session(rpc_request.session_id)
+            except ValueError as err:
                 send_response(
                     RpcErrorResponse(
                         request_type=RequestTypes.RESUME,
                         id=rpc_request.id,
-                        error=f"No session matching '{rpc_request.session_id}'",
+                        error=str(err),
                     )
                 )
                 return
-
-            config.chat_session_manager = new_chat_session_manager
-            session_unsubscribe()
-            coding_session = await CodingSession.load(config)
-            session_unsubscribe = coding_session.subscribe(write_event)
 
             send_response(
                 RpcPayloadResponse(
                     request_type=RequestTypes.RESUME,
                     id=rpc_request.id,
                     data=SessionData(
-                        session_id=new_chat_session_manager.session_id,
-                        messages=coding_session.harness.messages,
+                        session_id=session_runtime.session.chat_session_manager.session_id,
+                        messages=session_runtime.session.harness.messages,
                     ),
                 )
             )
@@ -285,13 +290,13 @@ async def main():
             entry_id = rpc_request.entry_id
 
             try:
-                messages = await coding_session.rewind_to(entry_id)
+                messages = await session_runtime.session.rewind_to(entry_id)
                 send_response(
                     RpcPayloadResponse(
                         request_type=RequestTypes.REWIND,
                         id=rpc_request.id,
                         data=SessionData(
-                            session_id=config.chat_session_manager.session_id,
+                            session_id=session_runtime.session.chat_session_manager.session_id,
                             messages=messages,
                         ),
                     ),
@@ -334,7 +339,7 @@ async def main():
 
                 set_default_model(rpc_request.model_ref)
 
-                coding_session.set_model(
+                session_runtime.session.set_model(
                     ai_model,
                 )
 
@@ -378,28 +383,25 @@ async def main():
                     RpcPayloadResponse(
                         request_type=RequestTypes.GET_STATE,
                         id=rpc_request.id,
-                        data=SessionState(model=config.model.name),
+                        data=SessionState(
+                            model=session_runtime.session.config.model.name
+                        ),
                     )
                 )
             elif rpc_request.type == RequestTypes.NEW_SESSION:
-                new_chat_session_manager = ChatSessionManager.new_session(
-                    cwd=config.chat_session_manager.cwd
-                )
-                config.chat_session_manager = new_chat_session_manager
-                session_unsubscribe()
-                coding_session = await CodingSession.load(config)
-                session_unsubscribe = coding_session.subscribe(write_event)
+                await session_runtime.new_session()
                 send_response(
                     RpcPayloadResponse(
                         request_type=RequestTypes.NEW_SESSION,
                         id=rpc_request.id,
                         data=SessionData(
-                            session_id=new_chat_session_manager.session_id, messages=[]
+                            session_id=session_runtime.session.chat_session_manager.session_id,
+                            messages=[],
                         ),
                     )
                 )
             elif rpc_request.type == RequestTypes.GET_REWIND_TARGETS:
-                targets = await coding_session.get_rewind_targets()
+                targets = await session_runtime.session.get_rewind_targets()
                 send_response(
                     RpcPayloadResponse(
                         request_type=RequestTypes.GET_REWIND_TARGETS,
@@ -407,8 +409,30 @@ async def main():
                         data=RewindTargetsData(targets=targets),
                     )
                 )
+            elif rpc_request.type == RequestTypes.GET_EXTENSION_COMMANDS:
+                extension_runtime = session_runtime.session.config.extension_runtime
+                commands = (
+                    extension_runtime.get_all_commands()
+                    if extension_runtime is not None
+                    else []
+                )
+
+                send_response(
+                    RpcPayloadResponse(
+                        request_type=RequestTypes.GET_EXTENSION_COMMANDS,
+                        id=rpc_request.id,
+                        data=ExtensionCommandsData(
+                            commands=[
+                                ExtensionCommandInfo(
+                                    name=c.name, description=c.description
+                                )
+                                for c in commands
+                            ]
+                        ),
+                    )
+                )
             elif rpc_request.type == RequestTypes.ABORT:
-                coding_session.cancel()
+                session_runtime.session.cancel()
                 send_response(
                     EmptySuccessResponse(
                         request_type=RequestTypes.ABORT,
@@ -431,7 +455,7 @@ async def main():
         task.add_done_callback(line_tasks.discard)
 
     if is_running():
-        coding_session.cancel()
+        session_runtime.session.cancel()
 
 
 if __name__ == "__main__":

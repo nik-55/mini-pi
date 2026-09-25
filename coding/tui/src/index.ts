@@ -6,7 +6,6 @@ import {
     ProcessTerminal,
     TuiMainScreen,
     type SelectItem,
-    type SlashCommand,
 } from "@earendil-works/pi-tui";
 
 import {
@@ -21,7 +20,8 @@ import { ActivityLoader } from "./loader.js";
 import { TUIHeader } from "./header.js";
 import { PickerComponent, type PickerOptions } from "./component.js";
 import { RpcClient } from "./rpc_client.js";
-import type { ExtensionUIRequest } from "./types/rpc.js";
+import type { ExtensionCommandInfo, ExtensionUIRequest } from "./types/rpc.js";
+import { BUILTIN_SLASH_COMMANDS } from "./types/command.js";
 
 // UI Setup
 const terminal = new ProcessTerminal();
@@ -39,6 +39,7 @@ const activityLoader = new ActivityLoader(tui, editor);
 // State
 let busy: boolean = false;
 let currentSessionId: string = "";
+let extensionCommands: ExtensionCommandInfo[] = [];
 
 // Agent
 const agent = new RpcClient();
@@ -148,6 +149,30 @@ function submitInput(text: string, isFollowup: boolean = false) {
 
     if (text == "/session") {
         trajectory.addText(`Active session: ${currentSessionId || '(none)'}`);
+        return;
+    }
+
+    if (text == "/help") {
+        const lines = [];
+
+        if (BUILTIN_SLASH_COMMANDS.length > 0) {
+            lines.push("Available built in commands");
+        }
+
+        for (const c of BUILTIN_SLASH_COMMANDS) {
+            const hint = c.argumentHint ? ` ${c.argumentHint}:` : "";
+            lines.push(`/${c.name}${hint} - ${c.description}`);
+        }
+
+        if (extensionCommands.length > 0) {
+            lines.push("Available Extension commands");
+
+            for (const c of extensionCommands) {
+                lines.push(` /${c.name} - ${c.description}`);
+            }
+        }
+
+        trajectory.addText(lines.length != 0 ? lines.join("\n") : "No commands available", dim_color_wrapper);
         return;
     }
 
@@ -311,7 +336,7 @@ function submitInput(text: string, isFollowup: boolean = false) {
                     }
                 }
             } catch (err) {
-
+                trajectory.addText(`Error resuming session ${err}`, red_color_wrapper);
             }
         })();
         return;
@@ -504,35 +529,24 @@ agent.onExtensionUIRequest(async (req: ExtensionUIRequest) => {
     }
 });
 
-const slashCommands: SlashCommand[] = [
-    {
-        name: "clear", description: "Clear conversation and start new session"
-    },
-    {
-        name: "session", description: "Show active session ID"
-    },
-    {
-        name: "resume", description: "Switch session",
-        argumentHint: "<id>"
-    },
-    { name: "exit", description: "Exit Mini-Pi" },
-    {
-        name: "rewind", description: "Rewind conversation to a previous user message"
-    },
-    {
-        name: "login", description: "Login to provider using api key", argumentHint: "<provider> <key>"
-    },
-    {
-        name: "logout", description: "Remove the api key for provider", argumentHint: "<provider>"
-    },
-    {
-        name: "model", description: "Set the default model across all sessions", argumentHint: "<model_ref>"
-    },
-]
+function setAutoCompleteProvider(extensionCommands: ExtensionCommandInfo[] | null = null) {
+    extensionCommands = extensionCommands || [];
+    editor.setAutocompleteProvider(
+        new CombinedAutocompleteProvider([...BUILTIN_SLASH_COMMANDS, ...extensionCommands], process.cwd(), null)
+    )
+}
 
-editor.setAutocompleteProvider(
-    new CombinedAutocompleteProvider(slashCommands, process.cwd(), null)
-);
+setAutoCompleteProvider();
+
+agent.getExtensionCommands().then((data) => {
+    const builtinNames = new Set(BUILTIN_SLASH_COMMANDS.map((c) => c.name));
+    extensionCommands = data.commands.filter((c) => !builtinNames.has(c.name));
+    setAutoCompleteProvider(
+        extensionCommands.map((c) => ({ name: c.name, description: c.description }))
+    );
+}).catch((err) => {
+    trajectory.addText(`Failed to load extension commands ${err}`, red_color_wrapper);
+})
 
 tui.addChild(tuiHeader.headerContainer);
 tui.addChild(trajectory.trajectoryContainer);

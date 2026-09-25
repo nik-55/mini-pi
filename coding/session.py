@@ -257,6 +257,28 @@ class CodingSession:
 
         return content
 
+    async def _try_execute_extension_command(self, text: str) -> bool:
+        if self.config.extension_runtime is None:
+            return False
+
+        name, _, args = text[1:].partition(" ")
+
+        command = self.config.extension_runtime.get_command(name)
+
+        if command is None:
+            return False
+
+        try:
+            result = command.handler(args, self.config.extension_runtime.context)
+
+            if inspect.isawaitable(result):
+                await result
+        except Exception as err:
+            # TODO: handle error from command handlers
+            pass
+
+        return True
+
     async def prompt(
         self,
         content: str,
@@ -267,6 +289,11 @@ class CodingSession:
 
         if self.harness.is_running:
             # TODO: inform agent is already running
+            return
+
+        if content.startswith("/") and await self._try_execute_extension_command(
+            content
+        ):
             return
 
         effective_content = await self._run_input_hooks(content)
