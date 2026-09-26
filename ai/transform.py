@@ -1,5 +1,5 @@
 from ai.types import (
-    AgentMessage,
+    Message,
     AssistantMessage,
     ToolCall,
     ToolResultMessage,
@@ -7,8 +7,8 @@ from ai.types import (
 )
 
 
-def transform_messages(messages: list[AgentMessage]) -> list[AgentMessage]:
-    result: list[AgentMessage] = []
+def transform_messages(messages: list[Message]) -> list[Message]:
+    result: list[Message] = []
     pending_tool_calls: list[ToolCall] = []
     existing_tool_result_ids: set[str] = set()
 

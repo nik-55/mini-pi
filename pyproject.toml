@@ -1,22 +1,14 @@
-# Test for python>=3.11
-# uv venv /tmp/test-mini-pi-311 --python 3.11 && \
-# uv pip install -r requirements.txt --python /tmp/test-mini-pi-311/bin/python && \
-# PYTHONPATH=. /tmp/test-mini-pi-311/bin/python -c "
-# import ai
-# import agent
-# import coding
-# import agent.harness
-# import ai.api.openai_completions.client
-# import coding.session
-# import coding.rpc
-# import coding.tools
-# import coding.cli
-# print('SUCCESS: Python 3.11 import check passed.')
+# Test for python>=3.12
+# uv venv /tmp/test-mini-pi-312 --python 3.12 && \
+# uv pip install -r requirements.txt --python /tmp/test-mini-pi-312/bin/python && \
+# PYTHONPATH=. /tmp/test-mini-pi-312/bin/python -c "
+# import coding.main
+# print('SUCCESS: Python 3.12 import check passed.')
 # "
 #
-# PYTHONPATH=. /tmp/test-mini-pi-311/bin/python -m coding.cli
+# PYTHONPATH=. /tmp/test-mini-pi-312/bin/python -m coding.main --mode cli
 #
-# rm -rf /tmp/test-mini-pi-311
+# rm -rf /tmp/test-mini-pi-312
 
 [build-system]
 requires = ["hatchling"]
@@ -27,11 +19,10 @@ name = "mini-pi-agent"
 version = "0.1.2"
 description = "A minimalist coding agent"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.13.5",
-    "python-dotenv>=1.2.3",
     "prompt_toolkit>=3.0.53",
     "jsonschema>=4.26.0",
 ]

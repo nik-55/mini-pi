@@ -1,6 +1,10 @@
 // Port of events.py in typescript
 
-import type { Message, AssistantMessageData, ToolResultMessageData } from "./message.js";
+import type {
+    Message,
+    AssistantMessageData,
+    ToolResultMessageData,
+} from "./message.js";
 
 export interface TextDeltaEvent {
     type: "text_delta";
@@ -12,40 +16,40 @@ export interface ThinkingDeltaEvent {
     delta: string;
 }
 
-export type AssistantMessageEvent = TextDeltaEvent | ThinkingDeltaEvent
+export type AssistantMessageEvent = TextDeltaEvent | ThinkingDeltaEvent;
 
 export interface MessageStartEvent {
-    type: "message_start"
-    message: Message,
+    type: "message_start";
+    message: Message;
 }
 
 export interface MessageUpdateEvent {
-    type: "message_update"
-    assistant_message_event: AssistantMessageEvent,
+    type: "message_update";
+    assistant_message_event: AssistantMessageEvent;
 }
 
 export interface MessageEndEvent {
-    type: "message_end"
-    message: Message,
+    type: "message_end";
+    message: Message;
 }
 
 export interface AgentStartEvent {
-    type: "agent_start",
+    type: "agent_start";
 }
 
 export interface AgentEndEvent {
-    type: "agent_end",
-    messages?: Message[],
+    type: "agent_end";
+    messages?: Message[];
 }
 
 export interface TurnStartEvent {
-    type: "turn_start",
+    type: "turn_start";
 }
 
 export interface TurnEndEvent {
-    type: "turn_end",
-    message: AssistantMessageData,
-    tool_results?: ToolResultMessageData[],
+    type: "turn_end";
+    message: AssistantMessageData;
+    tool_results?: ToolResultMessageData[];
 }
 
 export interface ToolExecutionStartEvent {
@@ -63,7 +67,8 @@ export interface ToolExecutionEndEvent {
     is_error: boolean;
 }
 
-export type AgentEvent = AgentStartEvent
+export type AgentEvent =
+    | AgentStartEvent
     | AgentEndEvent
     | TurnStartEvent
     | TurnEndEvent
@@ -72,7 +77,6 @@ export type AgentEvent = AgentStartEvent
     | MessageEndEvent
     | ToolExecutionStartEvent
     | ToolExecutionEndEvent;
-
 
 type CompactionReason = "threshold" | "overflow" | "manual";
 
@@ -87,4 +91,5 @@ export interface CompactionEndEvent {
     error_message?: string | null;
 }
 
-export type SessionEvent = AgentEvent | CompactionStartEvent | CompactionEndEvent;
+export type SessionEvent =
+    AgentEvent | CompactionStartEvent | CompactionEndEvent;

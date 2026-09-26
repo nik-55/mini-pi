@@ -3,17 +3,17 @@ import json
 
 from ai.types import (
     AIModel,
-    AgentMessage,
+    Message,
     AssistantMessage,
     ToolCall,
     ToolResultMessage,
     UserMessage,
+    Tool,
 )
-from agent.tools import AgentTool
 from ai.transform import transform_messages
 
 
-def tool_to_openai(tool: AgentTool) -> dict[str, Any]:
+def tool_to_openai(tool: Tool) -> dict[str, Any]:
     return {
         "type": "function",
         "function": {
@@ -35,7 +35,7 @@ def _tool_call_to_openai(tool_call: ToolCall) -> dict[str, Any]:
     }
 
 
-def message_to_openai(message: AgentMessage) -> dict[str, Any]:
+def message_to_openai(message: Message) -> dict[str, Any]:
     if isinstance(message, UserMessage):
         return {
             "role": "user",
@@ -68,8 +68,8 @@ def message_to_openai(message: AgentMessage) -> dict[str, Any]:
 def build_chat_payload(
     model: AIModel,
     system: str,
-    messages: list[AgentMessage],
-    tools: list[AgentTool],
+    messages: list[Message],
+    tools: list[Tool],
 ) -> dict[str, Any]:
     messages = transform_messages(messages)
     payload = {

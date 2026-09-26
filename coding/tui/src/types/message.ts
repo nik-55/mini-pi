@@ -35,7 +35,8 @@ export interface ToolResultMessageData {
     is_error?: boolean;
 }
 
-export type Message = UserMessageData | AssistantMessageData | ToolResultMessageData;
+export type Message =
+    UserMessageData | AssistantMessageData | ToolResultMessageData;
 
 export interface CompactSummaryMessage {
     role: "compaction_summary";

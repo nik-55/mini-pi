@@ -14,7 +14,7 @@ import {
     type Colorfn,
     editorSelectListTheme,
     cyan_color_wrapper,
-} from './theme.js';
+} from "./theme.js";
 
 class MarkdownMsgComponent extends Container {
     public text: string = "";
@@ -72,7 +72,9 @@ class CollapsibleComponent extends Container {
         this.clear();
         const arrow = this.expanded ? "▼" : "▶";
 
-        this.addChild(new TruncatedText(this.color(`${arrow} ${this.header}`), 1, 0));
+        this.addChild(
+            new TruncatedText(this.color(`${arrow} ${this.header}`), 1, 0),
+        );
 
         if (this.expanded) {
             this.addChild(new Text(dim_color_wrapper(this.body()), 1, 0));
@@ -82,28 +84,25 @@ class CollapsibleComponent extends Container {
     }
 }
 
-
 export interface PickerOptions {
     title: string;
     items: SelectItem[];
     hint?: string;
     maxVisible?: number;
-};
+}
 
 class PickerComponent extends Container {
     private selectList: SelectList;
     public onSelect?: (item: SelectItem) => void;
     public onCancel?: () => void;
 
-
     constructor(options: PickerOptions) {
         super();
-
 
         this.selectList = new SelectList(
             options.items,
             options.maxVisible ?? Math.min(options.items.length, 8),
-            editorSelectListTheme
+            editorSelectListTheme,
         );
 
         this.selectList.onSelect = (item: SelectItem) => {
@@ -117,7 +116,8 @@ class PickerComponent extends Container {
         this.addChild(new Text(cyan_color_wrapper(options.title), 1, 0));
         this.addChild(this.selectList);
 
-        const hint = options.hint ?? "(↑/↓ to navigate, Enter to select, Esc to cancel)";
+        const hint =
+            options.hint ?? "(↑/↓ to navigate, Enter to select, Esc to cancel)";
         this.addChild(new Text(dim_color_wrapper(hint), 1, 0));
         this.addChild(new Spacer(1));
     }
@@ -127,9 +127,4 @@ class PickerComponent extends Container {
     }
 }
 
-
-export {
-    MarkdownMsgComponent,
-    CollapsibleComponent,
-    PickerComponent,
-};
+export { MarkdownMsgComponent, CollapsibleComponent, PickerComponent };

@@ -5,16 +5,17 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from ai.types import AgentMessage, ThinkingLevel
+from ai.types import Message
 
 
 class SessionType(StrEnum):
     MESSAGE = "message"
-    SESSION_METADATA = "session_metadata"
     COMPACTION = "compaction"
     HEADER = "header"
-    MODEL_CHANGE = "model_change"
-    THINKING_LEVEL_CHANGE = "thinking_level_change"
+
+    # SESSION_METADATA = "session_metadata"
+    # MODEL_CHANGE = "model_change"
+    # THINKING_LEVEL_CHANGE = "thinking_level_change"
 
 
 def generate_session_entry_id() -> str:
@@ -43,22 +44,22 @@ class BaseSessionEntry(BaseEntry):
 
 class MessageEntry(BaseSessionEntry):
     type: Literal[SessionType.MESSAGE] = SessionType.MESSAGE
-    message: AgentMessage
+    message: Message
 
 
-class ModelChangeEntry(BaseSessionEntry):
-    type: Literal[SessionType.MODEL_CHANGE] = SessionType.MODEL_CHANGE
-    model_ref: str
+# class ModelChangeEntry(BaseSessionEntry):
+#     type: Literal[SessionType.MODEL_CHANGE] = SessionType.MODEL_CHANGE
+#     model_ref: str
 
 
-class ThinkingLevelChangeEntry(BaseSessionEntry):
-    type: Literal[SessionType.THINKING_LEVEL_CHANGE] = SessionType.THINKING_LEVEL_CHANGE
-    thinking_level: ThinkingLevel
+# class ThinkingLevelChangeEntry(BaseSessionEntry):
+#     type: Literal[SessionType.THINKING_LEVEL_CHANGE] = SessionType.THINKING_LEVEL_CHANGE
+#     thinking_level: ThinkingLevel
 
 
-class SessionMetaDataEntry(BaseSessionEntry):
-    type: Literal[SessionType.SESSION_METADATA] = SessionType.SESSION_METADATA
-    created_at: str = Field(default_factory=current_timestamp)
+# class SessionMetaDataEntry(BaseSessionEntry):
+#     type: Literal[SessionType.SESSION_METADATA] = SessionType.SESSION_METADATA
+#     created_at: str = Field(default_factory=current_timestamp)
 
 
 class CompactionEntry(BaseSessionEntry):
@@ -70,10 +71,7 @@ class CompactionEntry(BaseSessionEntry):
 SessionEntry = Annotated[
     SessionHeader
     | MessageEntry
-    | ModelChangeEntry
-    | ThinkingLevelChangeEntry
-    | CompactionEntry
-    | SessionMetaDataEntry,
+    | CompactionEntry,
     Field(discriminator="type"),
 ]
 

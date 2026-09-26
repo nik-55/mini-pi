@@ -1,14 +1,15 @@
-from collections.abc import AsyncIterator
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal
+import inspect
+from typing import Any
 
 from pydantic import BaseModel
 
-from agent.cancellation import CancellationSignal
+from ai.cancellation import CancellationSignal
 from agent.events import AgentEvent, MessageEndEvent
 from agent.harness import AgentHarness, AgentHarnessConfig
-from agent.provider import ModelProvider
 from agent.tools import AgentTool
+from ai.registry import stream
 from ai.types import AIModel, AssistantMessage
 from coding.compaction.compaction import (
     format_file_operations,
@@ -25,7 +26,6 @@ from coding.extensions.runtime import ExtensionRuntime
 from coding.extensions.types import InputHookResult
 from coding.events import (
     CompactionReason,
-    CompactionEvent,
     CompactionStartEvent,
     CompactionEndEvent,
     SessionEvent,
@@ -38,13 +38,11 @@ from coding.session_manager.traversal import entries_by_id
 
 @dataclass
 class CodingSessionConfig:
-    provider: ModelProvider
     model: AIModel
     system: str
     chat_session_manager: ChatSessionManager
     compaction_settings: CompactionSettings
     tools: list[AgentTool] = field(default_factory=list)
-    max_turns: int = 40
     extension_runtime: ExtensionRuntime | None = None
 
 
@@ -57,7 +55,7 @@ class CodingSession:
     def __init__(
         self,
         config: CodingSessionConfig,
-        harness: AgentHarness,
+        harness: AgentHarness[SessionMessage],
         chat_session_manager: ChatSessionManager,
     ):
         self.config = config
@@ -66,7 +64,7 @@ class CodingSession:
         self.harness.subscribe(
             self._on_agent_event
         )  # It returns unsubscribe function currently not used
-        # self._listerners: list[Callable[[SessionEvent], Any]] = []
+        self._listerners: list[Callable[[SessionEvent], Any]] = []
         self._compaction_signal: CancellationSignal | None = None
 
     @property
@@ -92,16 +90,17 @@ class CodingSession:
                 config.extension_runtime.wrap_tool(t) for t in tool_map.values()
             ]
 
-        harness_config = AgentHarnessConfig(
-            provider=config.provider,
+        harness_config = AgentHarnessConfig[SessionMessage](
+            stream_fn=stream,
             model=config.model,
             system=config.system,
             tools=effective_tools,
-            max_turns=config.max_turns,
             convert_message_to_llm_compatible=convert_message_to_llm_compatible,
         )
 
-        harness = AgentHarness(config=harness_config, messages=context.messages)
+        harness = AgentHarness[SessionMessage](
+            config=harness_config, messages=context.messages
+        )
 
         return cls(
             config=config,
@@ -109,37 +108,30 @@ class CodingSession:
             chat_session_manager=chat_session_manager,
         )
 
-    def set_model(self, model: AIModel, provider: ModelProvider) -> None:
+    def set_model(self, model: AIModel) -> None:
         # TODO
         self.config.model = model
-        self.config.provider = provider
         self.harness.config.model = model
-        self.harness.config.provider = provider
 
-    def set_api_key(self, api_key: str) -> None:
-        # TODO
-        self.config.provider.api_key = api_key
-        self.harness.config.provider.api_key = api_key
+    def subscribe(self, listener: Callable[[SessionEvent], Any]) -> Callable[[], None]:
+        self._listerners.append(listener)
 
-    # def subscribe(self, listener: Callable[[SessionEvent], Any]) -> Callable[[], None]:
-    #     self._listerners.append(listener)
+        def unsubscribe() -> None:
+            try:
+                self._listerners.remove(listener)
+            except ValueError:
+                pass
 
-    #     def unsubscribe() -> None:
-    #         try:
-    #             self._listerners.remove(listener)
-    #         except ValueError:
-    #             pass
+        return unsubscribe
 
-    #     return unsubscribe
+    async def _notify(self, event: SessionEvent) -> None:
+        snapshot_listeners = list(self._listerners)
 
-    # async def _notify(self, event: SessionEvent):
-    #     snapshot_listeners = list(self._listerners)
+        for listerner in snapshot_listeners:
+            result = listerner(event)
 
-    #     for listerner in snapshot_listeners:
-    #         result = listerner(event)
-
-    #         if inspect.isawaitable(result):
-    #             await result
+            if inspect.isawaitable(result):
+                await result
 
     def _is_usage_stale(self) -> bool:
         # Whether usage is stale
@@ -192,7 +184,7 @@ class CodingSession:
         if isinstance(event, MessageEndEvent):
             self.chat_session_manager.append_message(event.message)
 
-        # await self._notify(event)
+        await self._notify(event)
 
     async def get_rewind_targets(self) -> list[RewindTarget]:
         if self.chat_session_manager.leaf_id is None:
@@ -230,16 +222,26 @@ class CodingSession:
 
         return context.messages
 
-    async def prompt(
-        self,
-        content: str,
-        streaming_behaviour: Literal["steer", "follow_up"] | None = None,
-    ) -> AsyncIterator[SessionEvent]:
-        effective_content = content
+    async def steer(self, content: str) -> None:
+        effective_content = await self._run_input_hooks(content)
 
+        if effective_content is None:
+            return
+
+        self.harness.msg_queue_when_running.steer(effective_content)
+
+    async def follow_up(self, content: str) -> None:
+        effective_content = await self._run_input_hooks(content)
+
+        if effective_content is None:
+            return
+
+        self.harness.msg_queue_when_running.follow_up(effective_content)
+
+    async def _run_input_hooks(self, content: str) -> str | None:
         if self.config.extension_runtime is not None:
             input_result_hook: InputHookResult = (
-                await self.config.extension_runtime.run_input_hooks(effective_content)
+                await self.config.extension_runtime.run_input_hooks(content)
             )
 
             if input_result_hook.action == "handled":
@@ -249,47 +251,76 @@ class CodingSession:
                 input_result_hook.action == "transform"
                 and input_result_hook.text is not None
             ):
-                effective_content = input_result_hook.text
+                return input_result_hook.text
 
+        return content
+
+    async def _try_execute_extension_command(self, text: str) -> bool:
+        if self.config.extension_runtime is None:
+            return False
+
+        name, _, args = text[1:].partition(" ")
+
+        command = self.config.extension_runtime.get_command(name)
+
+        if command is None:
+            return False
+
+        try:
+            result = command.handler(args, self.config.extension_runtime.context)
+
+            if inspect.isawaitable(result):
+                await result
+        except Exception as err:
+            # TODO: handle error from command handlers
+            pass
+
+        return True
+
+    async def prompt(
+        self,
+        content: str,
+    ) -> None:
         if self.is_compacting:
             # TODO: we need to inform subscriber that compacting is in progress
             return
 
         if self.harness.is_running:
-            streaming_behaviour = streaming_behaviour or "steer"
+            # TODO: inform agent is already running
+            return
 
-            if streaming_behaviour == "steer":
-                self.harness.msg_queue_when_running.steer(effective_content)
-            elif streaming_behaviour == "follow_up":
-                self.harness.msg_queue_when_running.follow_up(effective_content)
+        if content.startswith("/") and await self._try_execute_extension_command(
+            content
+        ):
+            return
 
+        effective_content = await self._run_input_hooks(content)
+
+        if effective_content is None:
             return
 
         # Before sending prompt to llm
         if self.should_auto_compact():
-            async for event in self.compact(reason="threshold"):
-                yield event
+            await self.compact(reason="threshold")
 
-        async for event in self.harness.prompt(effective_content):
-            yield event
+        await self.harness.prompt(effective_content)
 
         # After the run
         last = self._last_assistant_message()
 
         if last and last.stop_reason != "aborted" and self.should_auto_compact():
-            async for event in self.compact(reason="threshold"):
-                yield event
+            await self.compact(reason="threshold")
 
     async def compact(
         self,
         reason: CompactionReason,
         custom_instructions: str | None = None,
-    ) -> AsyncIterator[CompactionEvent]:
+    ) -> None:
         if self.harness.is_running or self.is_compacting:
             # TODO
             return
 
-        yield CompactionStartEvent(reason=reason)
+        await self._notify(CompactionStartEvent(reason=reason))
 
         signal = CancellationSignal()
         self._compaction_signal = signal
@@ -303,11 +334,13 @@ class CodingSession:
 
             if preparation is None:
                 # TODO
-                yield CompactionEndEvent(error_message="Unable to find valid cut point")
+                await self._notify(
+                    CompactionEndEvent(error_message="Unable to find valid cut point")
+                )
                 return
 
             summary = await generate_compaction_summary(
-                provider=self.config.provider,
+                stream_fn=self.harness.config.stream_fn,
                 model=self.config.model,
                 messages_to_summarize=preparation.messages_to_summarize,
                 previous_summary=preparation.previous_summary,
@@ -316,7 +349,9 @@ class CodingSession:
             )
 
             if signal.is_cancelled():
-                yield CompactionEndEvent(error_message="Compaction Cancelled")
+                await self._notify(
+                    CompactionEndEvent(error_message="Compaction Cancelled")
+                )
                 return
 
             file_operations_str = format_file_operations(
@@ -334,11 +369,13 @@ class CodingSession:
             context = self.chat_session_manager.build_session_context()
             self.harness.replace_messages(context.messages)
 
-            yield CompactionEndEvent(
-                result=f"Compacted {len(preparation.messages_to_summarize)} messages"
+            await self._notify(
+                CompactionEndEvent(
+                    result=f"Compacted {len(preparation.messages_to_summarize)} messages"
+                )
             )
         except Exception as err:
-            yield CompactionEndEvent(error_message=str(err))
+            await self._notify(CompactionEndEvent(error_message=str(err)))
         finally:
             self._compaction_signal = None
 
