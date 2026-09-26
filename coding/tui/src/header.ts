@@ -7,8 +7,7 @@ function loadLogo(): string {
         const logoPath = new URL("./assets/logo.txt", import.meta.url);
         const logo = readFileSync(logoPath, "utf-8").trimEnd();
         return logo;
-    }
-    catch {
+    } catch {
         return "Mini Pi";
     }
 }
@@ -39,7 +38,7 @@ export class TUIHeader {
             info.push(`model: ${this.currentModel}`);
         }
 
-        info.push(this.cwd)
+        info.push(this.cwd);
 
         if (this.currentSessionId) {
             info.push(`Session ${this.currentSessionId}`);
@@ -50,10 +49,13 @@ export class TUIHeader {
         // Same layout as CSS Flexbox
         // shrink = 0 means dont let this component shrink
         // Logo is 9 column wide so 11 is good enough
-        const hstack = new HStack([
-            { component: logoText, basis: 11, shrink: 0 },
-            { component: infoText },
-        ], { gap: 2 });
+        const hstack = new HStack(
+            [
+                { component: logoText, basis: 11, shrink: 0 },
+                { component: infoText },
+            ],
+            { gap: 2 },
+        );
 
         this.headerContainer.addChild(hstack);
         this.headerContainer.addChild(new Spacer(1));

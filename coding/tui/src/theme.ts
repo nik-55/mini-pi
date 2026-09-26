@@ -1,4 +1,8 @@
-import type { EditorTheme, MarkdownTheme, SelectListTheme } from "@earendil-works/pi-tui";
+import type {
+    EditorTheme,
+    MarkdownTheme,
+    SelectListTheme,
+} from "@earendil-works/pi-tui";
 
 export type Colorfn = (text: string) => string;
 
@@ -17,7 +21,7 @@ const editorSelectListTheme: SelectListTheme = {
     description: dim_color_wrapper,
     scrollInfo: dim_color_wrapper,
     noMatch: dim_color_wrapper,
-}
+};
 
 const editorTheme: EditorTheme = {
     borderColor: dim_color_wrapper,
