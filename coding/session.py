@@ -43,7 +43,6 @@ class CodingSessionConfig:
     chat_session_manager: ChatSessionManager
     compaction_settings: CompactionSettings
     tools: list[AgentTool] = field(default_factory=list)
-    max_turns: int = 40
     extension_runtime: ExtensionRuntime | None = None
 
 
@@ -96,7 +95,6 @@ class CodingSession:
             model=config.model,
             system=config.system,
             tools=effective_tools,
-            max_turns=config.max_turns,
             convert_message_to_llm_compatible=convert_message_to_llm_compatible,
         )
 

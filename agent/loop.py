@@ -41,12 +41,14 @@ async def run_agent_loop[CustomMessage](
     signal: CancellationSignal | None = None,
     get_steering_messages: Callable[[], tuple[UserMessage, ...]] = None,
     get_followup_messages: Callable[[], tuple[UserMessage, ...]] = None,
-    # Deliberately set to large number so agent can run for long but limit for how long till we have proper testing
-    max_turns: int = 1000,
     convert_message_to_llm_compatible: Callable[
         [list[AgentMessage[CustomMessage]]], list[Message]
     ] = None,
 ) -> AsyncIterator[AgentEvent]:
+    # Deliberately set to large number so agent can run for long
+    # but limit for how long till we have proper testing
+    max_turns = 1000
+
     tool_map = {t.name: t for t in tools}
     # messages: entire session history
     # new_message_start_index: messages added during this agent run speciafically

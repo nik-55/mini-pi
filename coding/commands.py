@@ -59,9 +59,9 @@ BUILTIN_SLASH_COMMANDS: tuple[BuiltinSlashCommand, ...] = (
         "Compact conversation history with optional focus instructions",
         "<instructions>",
     ),
+    BuiltinSlashCommand("login", "Login to provider using api key", "<provider> <key>"),
     # Cli dont have implementation for following for now
     BuiltinSlashCommand("rewind", "Rewind conversation to a previous user message"),
-    BuiltinSlashCommand("login", "Login to provider using api key", "<provider> <key>"),
     BuiltinSlashCommand("logout", "Remove the api key for provider", "<provider>"),
     BuiltinSlashCommand(
         "model", "Set the default model across all sessions", "<model_ref>"

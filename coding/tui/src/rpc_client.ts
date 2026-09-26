@@ -24,7 +24,7 @@ export class RpcClient {
         const pythonBin = getPythonBin();
         // -P ensure python look for modules only at PYTHONPATH 
         this.process = spawn(pythonBin,
-            ["-P", "-m", "coding.rpc",], {
+            ["-P", "-m", "coding.main", "--mode", "rpc"], {
             cwd: process.cwd(),
             stdio: ["pipe", "pipe", "inherit"],
             // stdin (node can write to), stdout (node can read from), stderr (any errors, warnings stream to parent terminal directly)

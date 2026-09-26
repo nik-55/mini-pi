@@ -25,7 +25,6 @@ class AgentHarnessConfig[CustomMessage]:
     model: AIModel
     system: str
     tools: list[AgentTool] = field(default_factory=list)
-    max_turns: int = 40
     convert_message_to_llm_compatible: (
         Callable[[list[AgentMessage[CustomMessage]]], list[Message]] | None
     ) = None
@@ -94,7 +93,6 @@ class AgentHarness[CustomMessage]:
                 ),  # We dont need deep copy, just dont append to same message list
                 prompts=[UserMessage(content=content)],
                 tools=self.config.tools,
-                max_turns=self.config.max_turns,
                 signal=signal,
                 get_steering_messages=self.msg_queue_when_running.drain_steering,
                 get_followup_messages=self.msg_queue_when_running.drain_follow_up,
