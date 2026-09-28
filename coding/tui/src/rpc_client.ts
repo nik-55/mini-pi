@@ -119,7 +119,7 @@ export class RpcClient {
                         `Timeout waiting for response to ${request.type} with id: ${id}`,
                     ),
                 );
-            }, 30000);
+            }, 300000);
 
             this.pendingRequests.set(id, {
                 resolve: (response: RpcResponse) => {

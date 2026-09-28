@@ -17,7 +17,7 @@ export class TUIHeader {
     public currentModel: string = "";
     public currentSessionId: string = "";
     public logo: string = "";
-    public version_str: string = "Mini-Pi 0.1.2";
+    public version_str: string = "Mini-Pi 0.1.3";
     public cwd: string;
 
     public requestRender: () => void;

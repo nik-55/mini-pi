@@ -59,6 +59,7 @@ async def _default_exec(
             *argv,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
+            # direct standard error to standard output of subprocess
             stderr=asyncio.subprocess.STDOUT,
         )
 

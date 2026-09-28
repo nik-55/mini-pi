@@ -21,7 +21,6 @@ def discover_project_context(cwd: Path | None = None) -> list[ProjectContextFile
 
     candidates: list[Path] = (
         work_dir / "AGENTS.md",
-        work_dir / ".mini-pi" / "AGENTS.md",
     )
 
     context_files: list[ProjectContextFile] = []
@@ -101,7 +100,7 @@ def _parse_skill_file(path: Path) -> Skill | None:
 
 def discover_skills(cwd: Path | None = None) -> list[Skill]:
     work_dir = cwd or Path.cwd()
-    skill_dirs: list[Path] = (work_dir / ".mini-pi" / "skills",)
+    skill_dirs: list[Path] = (work_dir / ".agents" / "skills",)
 
     skills: list[Skill] = []
 
