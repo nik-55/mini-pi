@@ -64,3 +64,10 @@ HookHandlerOutputType = (
 HookHandler = Callable[
     [Any, ExtensionContext], HookHandlerOutputType | Awaitable[HookHandlerOutputType]
 ]
+
+
+@dataclass
+class ExtensionCommand:
+    name: str
+    description: str
+    handler: Callable[[str, ExtensionContext], Awaitable[None] | None]

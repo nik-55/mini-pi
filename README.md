@@ -1,31 +1,36 @@
-# Mini pi
+# minipi
 
-A minimal coding agent in python.
+A lightweight coding agent, heavily inspired by [pi](https://github.com/earendil-works/pi). It is written in Python for better readability.
 
-For the past month I have been exploring how to create an agent from scratch without frameworks, and I have also been digging into how to do evaluations. You can see the experiment artifacts here: https://gitlab.com/nik-55/llm-systems
+```text
+▄███████▄
+█ • ◡ • █
+  █   █  
+  █   █▄ 
+```
 
-Based on what I learned there, I want to build a harness that works and stays small. The goal is to keep it readable. Currently it follows the [tau architecture](https://github.com/huggingface/tau)
+## Features
 
-The current state:
-- No AI slop, and around 1700 lines of code
 - Streaming responses
-- 4 tools (read, write, bash, edit)
-- Sandboxing using bwrap on Linux
-- Interruption handling
-- Session persistence
-- A few basic commands (/clear, /session, /resume, /exit)
-- REPL only for now
+- 4 tools: `read`, `write`, `edit`, `bash` with a minimal sandbox
+- Project context loading (loads `AGENTS.md` and `.agents/skills`)
+- Support for commands (slash commands, e.g. `/rewind`, `/resume`, `/permission`)
+- Session persistence to `~/.mini-pi`
+- Support for hooks, which are triggered at specific points in the agent lifecycle (e.g. input hook, pre tool call, post tool call)
+- Support for extensions (to expand the capabilities of the agent). This includes adding new tools, adding new AI vendors, and adding commands.
+- Auto compaction (or `/compact <custom instructions>`) to compact the older messages
+- Basic TUI
+- Support for steering and follow-ups
 
+A few things:
+- Built-in support only for the OpenAI Chat Completions API. Tested only on [fireworks.ai](https://fireworks.ai/models) (with a few models), though more vendors can be added via extensions.
+- I tested it only on Ubuntu, though it should work on other OSes.
+- The sandbox supports only Linux.
 
 ## Setup
 
-- requirements: nodejs, python and uv
-- see python package [here](https://pypi.org/project/mini-pi-agent/)
-- install the tool using `uv tool install mini-pi-agent`
-- export the environment variables:
-```python
-export OPENAI_API_KEY=
-export OPENAI_BASE_URL=
-export MODEL=
-```
-- run `minipi` from any of your project
+- System requirements: Python, uv and Node.js (for the TUI).
+- Run `uv tool install mini-pi-agent`. See PyPI [here](https://pypi.org/project/mini-pi-agent/).
+- `cd` to the workspace you want to work in and run `minipi`.
+- Run `/login fireworks fw_UIO...`. The API key persists in raw form in `~/.mini-pi/auth.json`.
+- Run `/help` to learn about more commands.

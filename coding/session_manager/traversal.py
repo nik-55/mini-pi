@@ -1,15 +1,12 @@
 from dataclasses import dataclass
 
-from ai.types import ThinkingLevel, UserMessage
+from ai.types import UserMessage
 from coding.messages import CompactionSummaryMessage, SessionMessage
 from coding.session_manager.entries import (
     MessageEntry,
-    ModelChangeEntry,
     SessionEntry,
     CompactionEntry,
     SessionHeader,
-    SessionMetaDataEntry,
-    ThinkingLevelChangeEntry,
 )
 
 
@@ -61,9 +58,9 @@ class SessionContext:
     messages_entries: list[
         SessionEntry
     ]  # Same list as messages (i.e message corresponding entry)
-    model_ref: str | None = None
-    thinking_level: ThinkingLevel | None = None
-    session_metadata: SessionMetaDataEntry | None = None
+    # model_ref: str | None = None
+    # thinking_level: ThinkingLevel | None = None
+    # session_metadata: SessionMetaDataEntry | None = None
 
 
 def entry_to_message(entry: SessionEntry) -> SessionMessage | None:
@@ -124,22 +121,19 @@ def build_session_context(
 
         messages.append(message)
 
-    session_metadata: SessionMetaDataEntry | None = None
-    model_ref: str | None = None
-    thinking_level: ThinkingLevel | None = None
+    # session_metadata: SessionMetaDataEntry | None = None
+    # model_ref: str | None = None
+    # thinking_level: ThinkingLevel | None = None
 
-    for entry in branch:
-        if isinstance(entry, SessionMetaDataEntry):
-            session_metadata = entry
-        elif isinstance(entry, ModelChangeEntry):
-            model_ref = entry.model_ref
-        elif isinstance(entry, ThinkingLevelChangeEntry):
-            thinking_level = entry.thinking_level
+    # for entry in branch:
+    #     if isinstance(entry, SessionMetaDataEntry):
+    #         session_metadata = entry
+    #     elif isinstance(entry, ModelChangeEntry):
+    #         model_ref = entry.model_ref
+    #     elif isinstance(entry, ThinkingLevelChangeEntry):
+    #         thinking_level = entry.thinking_level
 
     return SessionContext(
-        session_metadata=session_metadata,
-        model_ref=model_ref,
-        thinking_level=thinking_level,
         messages=messages,
         messages_entries=messages_entries,
     )

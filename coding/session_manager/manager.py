@@ -7,14 +7,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
-from ai.types import AgentMessage, MessageType, ThinkingLevel
+from ai.types import Message, MessageType
 from coding.session_manager.entries import (
     CompactionEntry,
     MessageEntry,
-    ModelChangeEntry,
     SessionEntry,
     SessionHeader,
-    ThinkingLevelChangeEntry,
     entry_from_json_line,
     entry_to_json_line,
 )
@@ -232,7 +230,7 @@ class ChatSessionManager:
 
         self._persist(entry)
 
-    def append_message(self, message: AgentMessage) -> str:
+    def append_message(self, message: Message) -> str:
         entry = MessageEntry(parent_id=self.leaf_id, message=message)
         self._append_entry(entry)
         return entry.id
@@ -247,23 +245,23 @@ class ChatSessionManager:
         self._append_entry(entry)
         return entry.id
 
-    def append_thinking_level_change(self, thinking_level: ThinkingLevel) -> str:
-        entry = ThinkingLevelChangeEntry(
-            parent_id=self.leaf_id,
-            thinking_level=thinking_level,
-        )
+    # def append_thinking_level_change(self, thinking_level: ThinkingLevel) -> str:
+    #     entry = ThinkingLevelChangeEntry(
+    #         parent_id=self.leaf_id,
+    #         thinking_level=thinking_level,
+    #     )
 
-        self._append_entry(entry)
-        return entry.id
+    #     self._append_entry(entry)
+    #     return entry.id
 
-    def append_model_change(self, model_ref: str) -> str:
-        entry = ModelChangeEntry(
-            parent_id=self.leaf_id,
-            model_ref=model_ref,
-        )
+    # def append_model_change(self, model_ref: str) -> str:
+    #     entry = ModelChangeEntry(
+    #         parent_id=self.leaf_id,
+    #         model_ref=model_ref,
+    #     )
 
-        self._append_entry(entry)
-        return entry.id
+    #     self._append_entry(entry)
+    #     return entry.id
 
     def reset_leaf(self):
         self.leaf_id = None

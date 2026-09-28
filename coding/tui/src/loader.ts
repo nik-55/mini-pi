@@ -1,4 +1,8 @@
-import { Loader, type Editor, type TuiMainScreen } from "@earendil-works/pi-tui";
+import {
+    Loader,
+    type Editor,
+    type TuiMainScreen,
+} from "@earendil-works/pi-tui";
 import { cyan_color_wrapper, dim_color_wrapper } from "./theme.js";
 
 export class ActivityLoader {
@@ -9,7 +13,12 @@ export class ActivityLoader {
     constructor(tui: TuiMainScreen, editor: Editor) {
         this.tui = tui;
         this.editor = editor;
-        this.loader = new Loader(tui, cyan_color_wrapper, dim_color_wrapper, "working...");
+        this.loader = new Loader(
+            tui,
+            cyan_color_wrapper,
+            dim_color_wrapper,
+            "working...",
+        );
     }
 
     public start(status: string = "working...") {

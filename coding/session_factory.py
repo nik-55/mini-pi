@@ -1,8 +1,7 @@
 import os
 from pathlib import Path
 
-from ai.api.openai_completions import OpenAIProvider
-from ai.registry import get_model, list_models, resolve_api_key
+from ai.registry import get_model, list_models, set_credential_reader
 from coding.auth import get_api_key_from_auth
 from coding.context import (
     discover_project_context,
@@ -79,17 +78,9 @@ async def build_session_config(
             raise ValueError("No model registered.")
 
     ai_model = get_model(model_ref)
-
-    api_key = (
-        get_api_key_from_auth(ai_model.provider)
-        or resolve_api_key(ai_model.provider)
-        or ""
-    )
-
-    provider = OpenAIProvider(api_key=api_key, base_url=ai_model.base_url)
+    set_credential_reader(get_api_key_from_auth)
 
     config = CodingSessionConfig(
-        provider=provider,
         model=ai_model,
         system=dynamic_system_prompt,
         tools=tools,

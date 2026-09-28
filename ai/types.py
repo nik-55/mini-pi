@@ -1,7 +1,10 @@
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
+
+from ai.cancellation import CancellationSignal
 
 # Messages
 
@@ -59,8 +62,48 @@ class ToolResultMessage(BaseModel):
     is_error: bool = False
 
 
-AgentMessage = Annotated[
+Message = Annotated[
     UserMessage | AssistantMessage | ToolResultMessage, Field(discriminator="role")
+]
+
+# Events
+
+
+class EventTypes(StrEnum):
+    TEXT_DELTA = "text_delta"
+    THINKING_DELTA = "thinking_delta"
+    DONE = "DONE"
+
+
+# LLM Provider Streaming Events
+
+
+class TextDeltaEvent(BaseModel):
+    type: Literal[EventTypes.TEXT_DELTA] = EventTypes.TEXT_DELTA
+    delta: str
+
+
+class ThinkingDeltaEvent(BaseModel):
+    type: Literal[EventTypes.THINKING_DELTA] = EventTypes.THINKING_DELTA
+    delta: str
+
+
+AssistantMessageEvent = Annotated[
+    TextDeltaEvent | ThinkingDeltaEvent,
+    Field(discriminator="type"),
+]
+
+
+# Internal LLM Provider to loop signal when llm provider is done streaming
+# Not meant to be send outside
+class DoneEvent(BaseModel):
+    type: Literal[EventTypes.DONE] = EventTypes.DONE
+    message: AssistantMessage
+
+
+StreamEvent = Annotated[
+    AssistantMessageEvent | DoneEvent,
+    Field(discriminator="type"),
 ]
 
 # AI Model
@@ -91,3 +134,28 @@ class AIModel(BaseModel):
     context_window: int  # Maximum total token capacity (input prompt tokens + output token generated)
     max_tokens: int  # maximum output token model can generate in single call
     compat: OpenAICompletionsComp | None = None
+
+
+# Tools
+class Tool(BaseModel):
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+# Stream function
+
+
+@dataclass
+class Context:
+    system: str
+    messages: list[Message]
+    tools: list[Tool]
+
+
+@dataclass
+class StreamOptions:
+    api_key: str | None = None
+    signal: CancellationSignal | None = None
+    max_retries: int = 3
+    timeout_seconds: float = 300

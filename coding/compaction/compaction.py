@@ -1,10 +1,12 @@
-from agent.cancellation import CancellationSignal
-from agent.events import DoneEvent
-from agent.provider import ModelProvider
+from ai.cancellation import CancellationSignal
+from ai.provider import StreamFunction
 from ai.types import (
     AIModel,
     AssistantMessage,
+    Context,
+    StreamOptions,
     UserMessage,
+    DoneEvent,
 )
 from coding.compaction.prepare import serialize_messages_for_compaction
 from coding.compaction.prompt import SUMMARIZATION_PROMPT, SUMMARIZATION_SYSTEM_PROMPT
@@ -12,7 +14,7 @@ from coding.messages import SessionMessage
 
 
 async def generate_compaction_summary(
-    provider: ModelProvider,
+    stream_fn: StreamFunction,
     model: AIModel,
     messages_to_summarize: list[SessionMessage],
     custom_instructions: str | None = None,
@@ -33,12 +35,14 @@ async def generate_compaction_summary(
 
     response: AssistantMessage | None = None
 
-    async for event in provider.stream_response(
-        model=model,
-        system=SUMMARIZATION_SYSTEM_PROMPT,
-        messages=[UserMessage(content=prompt)],
-        tools=[],
-        signal=signal,
+    async for event in stream_fn(
+        model,
+        Context(
+            system=SUMMARIZATION_SYSTEM_PROMPT,
+            messages=[UserMessage(content=prompt)],
+            tools=[],
+        ),
+        StreamOptions(signal=signal),
     ):
         if isinstance(event, DoneEvent):
             response = event.message

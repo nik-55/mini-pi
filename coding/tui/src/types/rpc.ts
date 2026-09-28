@@ -48,12 +48,12 @@ export interface SetDefaultModelRequest {
 export interface GeneralRequest {
     id?: string;
     type:
-    | "abort"
-    | "new_session"
-    | "get_state"
-    | "list_sessions"
-    | "get_rewind_targets"
-    | "get_commands";
+        | "abort"
+        | "new_session"
+        | "get_state"
+        | "list_sessions"
+        | "get_rewind_targets"
+        | "get_extension_commands";
 }
 
 export type RpcRequest =
@@ -101,20 +101,82 @@ export interface RewindTargetsData {
 //     response: string;
 // }
 
+export interface ExtensionCommandInfo {
+    name: string;
+    description: string;
+}
+
+export interface ExtensionCommandsData {
+    commands: ExtensionCommandInfo[];
+}
+
 // RPC Server Response
 
 export type RpcSuccessResponse =
-    | { id?: string; type: "response"; request_type: "prompt" | "steer" | "follow_up" | "abort"; success: true; }
-    | { id?: string; type: "response"; request_type: "get_state"; success: true; data: SessionState; }
-    | { id?: string; type: "response"; request_type: "new_session"; success: true; data: SessionData; }
-    | { id?: string; type: "response"; request_type: "compact"; success: true; }
-    | { id?: string; type: "response"; request_type: "list_sessions"; success: true; data: SessionListData; }
-    | { id?: string; type: "response"; request_type: "resume"; success: true; data: SessionData; }
-    | { id?: string; type: "response"; request_type: "rewind"; success: true; data: SessionData; }
-    | { id?: string; type: "response"; request_type: "get_rewind_targets"; success: true; data: RewindTargetsData; }
-    | { id?: string; type: "response"; request_type: "login"; success: true; }
-    | { id?: string; type: "response"; request_type: "logout"; success: true; }
-    | { id?: string; type: "response"; request_type: "set_default_model"; success: true; };
+    | {
+          id?: string;
+          type: "response";
+          request_type: "prompt" | "steer" | "follow_up" | "abort";
+          success: true;
+      }
+    | {
+          id?: string;
+          type: "response";
+          request_type: "get_state";
+          success: true;
+          data: SessionState;
+      }
+    | {
+          id?: string;
+          type: "response";
+          request_type: "new_session";
+          success: true;
+          data: SessionData;
+      }
+    | { id?: string; type: "response"; request_type: "compact"; success: true }
+    | {
+          id?: string;
+          type: "response";
+          request_type: "list_sessions";
+          success: true;
+          data: SessionListData;
+      }
+    | {
+          id?: string;
+          type: "response";
+          request_type: "resume";
+          success: true;
+          data: SessionData;
+      }
+    | {
+          id?: string;
+          type: "response";
+          request_type: "rewind";
+          success: true;
+          data: SessionData;
+      }
+    | {
+          id?: string;
+          type: "response";
+          request_type: "get_rewind_targets";
+          success: true;
+          data: RewindTargetsData;
+      }
+    | { id?: string; type: "response"; request_type: "login"; success: true }
+    | { id?: string; type: "response"; request_type: "logout"; success: true }
+    | {
+          id?: string;
+          type: "response";
+          request_type: "set_default_model";
+          success: true;
+      }
+    | {
+          id?: string;
+          type: "response";
+          request_type: "get_extension_commands";
+          success: true;
+          data: ExtensionCommandsData;
+      };
 
 export interface RpcErrorResponse {
     id?: string;
@@ -122,21 +184,20 @@ export interface RpcErrorResponse {
     request_type: string;
     success: false;
     error: string;
-};
+}
 
 export type RpcResponse = RpcSuccessResponse | RpcErrorResponse;
-
 
 // Extension UI requests payload
 
 export interface SelectUIRequestPayload {
-    method: "select",
+    method: "select";
     title: string;
     options: string[];
 }
 
 export interface NotifyUIRequestPayload {
-    method: "notify",
+    method: "notify";
     message: string;
     notify_type: "info" | "warning" | "error";
 }

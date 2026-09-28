@@ -1,7 +1,6 @@
 from typing import Any
 
 from agent.tools import AgentTool
-from coding.commands import CommandContext, CommandResult, SlashCommand
 from coding.extensions.api import ExtensionAPI
 from coding.extensions.types import (
     ExtensionContext,
@@ -15,19 +14,20 @@ from coding.extensions.types import (
 
 
 def setup(api: ExtensionAPI):
-    def ping_handler(context: CommandContext) -> CommandResult:
-        arg_text = f" with args '{context.args}'" if context.args else ""
-        return CommandResult(
+    def ping_handler(args: str, context: ExtensionContext) -> None:
+        if context.ui is None:
+            return
+
+        arg_text = f" with args '{args}'" if args else ""
+        context.ui.notify(
             message=f"PONG from extensions{arg_text}!",
         )
+        return
 
     api.register_command(
-        SlashCommand(
-            name="ping",
-            description="Pong",
-            handler=ping_handler,
-            aliases=("shout",),
-        )
+        name="ping",
+        description="Pong",
+        handler=ping_handler,
     )
 
     async def get_current_temperature(arguments: dict[str, Any], signal=None) -> str:

@@ -1,14 +1,21 @@
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field, replace
 import os
 
-from pydantic import BaseModel, Field
+from ai.provider import StreamFunction
+from ai.types import AIModel, Context, StreamEvent, StreamOptions
 
-from ai.types import AIModel
 
-
-class Provider(BaseModel):
+@dataclass
+class Provider:
     name: str
     api_key: str | None = None  # Literal Key or Environment Variable Name
-    models: list[AIModel] = Field(default_factory=list)
+    models: list[AIModel] = field(default_factory=list)
+    # api name -> stream function
+    # A single provider often support multiple API implementations
+    # Fireworks provide API with both anthropic and openai compatibiliy
+    # eg: {"openai-completions": stream_openai_completions}
+    streams: dict[str, StreamFunction] = field(default_factory=dict)
 
 
 _PROVIDERS: dict[str, Provider] = {}
@@ -58,3 +65,48 @@ def resolve_api_key(provider_name: str) -> str | None:
         return os.environ.get(provider.api_key[1:])
 
     return provider.api_key
+
+
+CredentialReader = Callable[[str], str | None]
+
+_CREDENTIAL_READER: CredentialReader | None = None
+
+
+def set_credential_reader(reader: CredentialReader) -> None:
+    global _CREDENTIAL_READER
+    _CREDENTIAL_READER = reader
+
+
+def get_api_key(provider: str) -> str | None:
+    return (
+        _CREDENTIAL_READER(provider) if _CREDENTIAL_READER else None
+    ) or resolve_api_key(provider)
+
+
+def stream(
+    model: AIModel,
+    context: Context,
+    options: StreamOptions,
+) -> AsyncIterator[StreamEvent]:
+    provider = _PROVIDERS.get(model.provider)
+
+    if provider is None:
+        raise ValueError(f"Unknown provider: {model.provider}")
+
+    fn = provider.streams.get(model.api)
+
+    if fn is None:
+        raise ValueError(
+            f"Provider {model.provider} has no API implementation for {model.api}"
+        )
+
+    api_key = options.api_key or get_api_key(model.provider)
+
+    # Create copy before modifying
+    options = replace(options, api_key=api_key)
+
+    return fn(
+        model,
+        context,
+        options,
+    )

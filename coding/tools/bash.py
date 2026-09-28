@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from agent.cancellation import CancellationSignal
+from ai.cancellation import CancellationSignal
 from agent.tools import AgentTool
 from coding.tools.utils import ToolError, format_size, truncate
 
@@ -59,6 +59,7 @@ async def _default_exec(
             *argv,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
+            # direct standard error to standard output of subprocess
             stderr=asyncio.subprocess.STDOUT,
         )
 

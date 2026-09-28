@@ -21,7 +21,8 @@ class RequestTypes(StrEnum):
     GET_STATE = "get_state"
     LIST_SESSIONS = "list_sessions"
     GET_REWIND_TARGETS = "get_rewind_targets"
-    GET_COMMANDS = "get_commands"
+
+    GET_EXTENSION_COMMANDS = "get_extension_commands"
 
     LOGIN = "login"
     LOGOUT = "logout"
@@ -80,6 +81,7 @@ class GeneralRequest(BaseRequest):
         RequestTypes.GET_STATE,
         RequestTypes.LIST_SESSIONS,
         RequestTypes.GET_REWIND_TARGETS,
+        RequestTypes.GET_EXTENSION_COMMANDS,
     ]
 
 
@@ -125,6 +127,15 @@ class RewindTargetsData(BaseModel):
 #     response: str
 
 
+class ExtensionCommandInfo(BaseModel):
+    name: str
+    description: str
+
+
+class ExtensionCommandsData(BaseModel):
+    commands: list[ExtensionCommandInfo]
+
+
 # RPC Responses (response of RPC requests from rpc_server to rpc_client)
 
 
@@ -166,8 +177,15 @@ class RpcPayloadResponse(BaseRpcSuccessResponse):
         RequestTypes.RESUME,
         RequestTypes.GET_REWIND_TARGETS,
         RequestTypes.REWIND,
+        RequestTypes.GET_EXTENSION_COMMANDS,
     ]
-    data: SessionState | SessionData | SessionListData | RewindTargetsData
+    data: (
+        SessionState
+        | SessionData
+        | SessionListData
+        | RewindTargetsData
+        | ExtensionCommandsData
+    )
 
 
 class RpcErrorResponse(BaseRpcResponse):

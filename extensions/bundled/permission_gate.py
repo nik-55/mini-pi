@@ -1,7 +1,5 @@
-import os
 from typing import Literal
 
-from coding.commands import CommandContext, CommandResult, SlashCommand
 from coding.extensions.api import ExtensionAPI
 
 # TODO: Not sure if we should import internal functions in extension
@@ -57,36 +55,43 @@ def setup(api: ExtensionAPI):
 
             return
 
-    def permission_mode_command_handler(context: CommandContext) -> CommandResult:
+    def permission_mode_command_handler(args: str, context: ExtensionContext) -> None:
         global permission_mode
 
-        arg = context.args.strip().lower() if context.args else None
+        if context.ui is None:
+            # No one to notify better not to change
+            return
+
+        arg = args.strip().lower() if args else None
 
         if not arg:
             sandbox_status = "available" if is_sandbox_available() else "unavailable"
-            return CommandResult(
+            context.ui.notify(
                 message=f"Current bash permission mode '{permission_mode}' (sandbox: {sandbox_status})"
             )
+            return
 
         if arg == "ask":
             permission_mode = "ask"
-            return CommandResult(message="Bash permission mode set to ask")
+            context.ui.notify(message="Bash permission mode set to ask")
+            return
 
         if arg == "auto":
             if not is_sandbox_available():
-                return CommandResult(
+                context.ui.notify(
                     message="Cannot set to 'auto' as no sandbox available."
                 )
+                return
 
             permission_mode = "auto"
-            return CommandResult(message="Bash permission mode set to auto")
+            context.ui.notify(message="Bash permission mode set to auto")
+            return
 
-        return CommandResult(message="Usage: /permission [ask|auto]")
+        context.ui.notify(message="Usage: /permission [ask|auto]")
+        return
 
     api.register_command(
-        SlashCommand(
-            name="permission",
-            description="View or set bash permission mode: /permission [ask|auto]",
-            handler=permission_mode_command_handler,
-        )
+        name="permission",
+        description="View or set bash permission mode: /permission [ask|auto]",
+        handler=permission_mode_command_handler,
     )

@@ -1,3 +1,4 @@
+from ai.api.openai_completions import stream_openai_completions
 from ai.registry import Provider
 from ai.types import AIModel, OpenAICompletionsComp
 from coding.extensions.api import ExtensionAPI
@@ -13,6 +14,7 @@ def setup(api: ExtensionAPI) -> None:
         provider=Provider(
             name=provider_name,
             api_key="$FIREWORKS_API_KEY",
+            streams={"openai-completions": stream_openai_completions},
             models=[
                 # https://fireworks.ai/models/fireworks/minimax-m3
                 # https://platform.minimax.io/docs/api-reference/text-chat-openai#body-thinking

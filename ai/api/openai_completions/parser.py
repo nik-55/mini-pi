@@ -3,13 +3,16 @@
 import json
 from typing import Any
 
-from agent.events import (
+from ai.types import (
     DoneEvent,
-    AgentEvent,
     TextDeltaEvent,
     ThinkingDeltaEvent,
+    StreamEvent,
+    AssistantMessage,
+    StopReason,
+    ToolCall,
+    Usage,
 )
-from ai.types import AssistantMessage, StopReason, ToolCall, Usage
 
 
 def _str_to_dict(text: str) -> dict | None:
@@ -115,7 +118,7 @@ class ChatStreamParser:
 
         return finish_reason
 
-    def feed(self, chunk: dict) -> list[AgentEvent]:
+    def feed(self, chunk: dict) -> list[StreamEvent]:
         # When include usage is True, choice can be empty
         # Extract usage before asserting on choice
         # usage chunk is emitted at end
@@ -161,7 +164,7 @@ class ChatStreamParser:
         if not isinstance(delta, dict):
             return []
 
-        events: list[AgentEvent] = []
+        events: list[StreamEvent] = []
 
         for field_name in (
             "reasoning_content",
