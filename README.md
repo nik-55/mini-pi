@@ -2,6 +2,8 @@
 
 A lightweight coding agent, heavily inspired by [pi](https://github.com/earendil-works/pi). It is written in Python for better readability.
 
+I wrote a detailed breakdown of the architecture in this blog: [Building a coding agent from scratch](https://medium.com/@nik.xyz.in/building-a-coding-agent-from-scratch-6e11604201c3).
+
 ```text
 ▄███████▄
 █ • ◡ • █
